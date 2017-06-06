@@ -15,6 +15,8 @@ details: |
     list and deletion.
 
 prepare: |
+    systemctl daemon-reload
+
     echo "Given openvswitch is installed"
     apt install -y --no-install-recommends openvswitch-switch
 
