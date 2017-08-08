@@ -21,7 +21,7 @@ environment:
     TARGET_SNAP/rclocalcrash: core
     TARGET_SNAP/emptysystemd: core
     #TARGET_SNAP/emptyinitrd: kernel
-    BUILD_DIR: /home/tmp
+    BUILD_DIR: /var/tmp
 
 prepare: |
     mkdir -p $BUILD_DIR
