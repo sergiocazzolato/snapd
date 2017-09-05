@@ -1,0 +1,70 @@
+summary: create ubuntu-core image and execute the suite in a nested qemu instance
+
+systems: [ubuntu-16.04-64, ubuntu-16.04-32]
+
+prepare: |
+    mkdir -p /tmp/bin
+    ( cd /tmp/bin &&  wget https://niemeyer.s3.amazonaws.com/spread-amd64.tar.gz -O spread.tar.gz && tar xzvf spread.tar.gz )
+
+    # determine arch related vars
+    case "$NESTED_ARCH" in
+    amd64)
+        QEMU="$(which qemu-system-x86_64)"
+        ;;
+    i386)
+        QEMU="$(which qemu-system-i386)"
+        ;;
+    *)
+        echo "unsupported architecture"
+        exit 1
+        ;;
+    esac
+
+    # create ubuntu-core image
+    mkdir -p /tmp/work-dir
+
+    snap download core
+
+    /snap/bin/ubuntu-image --image-size 3G "$TESTSLIB/assertions/nested-${NESTED_ARCH}.model" --channel "$CORE_CHANNEL" --output ubuntu-core.img --extra-snaps core_*.snap
+    mv ubuntu-core.img /tmp/work-dir
+
+    . "$TESTSLIB/nested.sh"
+    create_assertions_disk
+
+    . "$TESTSLIB/systemd.sh"
+    systemd_create_and_start_unit nested-vm "${QEMU} -m 1024 -nographic -net nic,model=virtio -net user,hostfwd=tcp::8022-:22 -drive file=/tmp/work-dir/ubuntu-core.img,if=virtio,cache=none -drive file=${PWD}/assertions.disk,if=virtio,cache=none"
+    wait_for_ssh
+
+    . "$TESTSLIB/pkgdb.sh"
+    distro_install_package git
+
+restore: |
+    . "$TESTSLIB/systemd.sh"
+    systemd_stop_and_destroy_unit nested-vm
+    rm -rf /tmp/work-dir
+    rm -rf /tmp/bin
+
+execute: |
+    #echo "Wait until vm is ready"
+    . "$TESTSLIB/nested.sh"
+    prepare_ssh
+
+    echo "Download snapd and checkout desired branch"
+    git clone https://github.com/snapcore/snapd target && cd target
+    if [ ! -z "$NESTED_BRANCH" ]; then
+        git checkout "$NESTED_BRANCH"
+    fi
+
+    echo "Apply setup script for the tests"
+    if [ ! -z "$TESTS_SETUP" ]; then
+        eval "$TESTS_SETUP"
+    fi
+
+    echo "Apply setup in nested machine"
+    if [ ! -z "$NESTED_SYSTEM_SETUP" ]; then
+        execute_remote "$NESTED_SYSTEM_SETUP"
+    fi
+
+    echo "Run the selected tests"
+    export SPREAD_EXTERNAL_ADDRESS=localhost:8022
+    /tmp/bin/spread -v "$NESTED_TESTS"

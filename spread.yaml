@@ -510,6 +510,10 @@ suites:
         environment:
             NESTED_ARCH: "$(HOST: echo ${SPREAD_NESTED_ARCH:-amd64})"
             CORE_REFRESH_CHANNEL: "$(HOST: echo ${SPREAD_CORE_REFRESH_CHANNEL:-candidate})"
+            NESTED_TESTS: "$(HOST: echo ${SPREAD_NESTED_TESTS:-external:ubuntu-core-16-64:tests/})"
+            NESTED_BRANCH: "$(HOST: echo ${SPREAD_NESTED_BRANCH:-master})"
+            TESTS_SETUP: "$(HOST: echo ${SPREAD_TESTS_SETUP:-})"
+            NESTED_SYSTEM_SETUP: "$(HOST: echo ${SPREAD_NESTED_SYSTEM_SETUP:-})"
         halt-timeout: 2h
         kill-timeout: 2h
         manual: true
