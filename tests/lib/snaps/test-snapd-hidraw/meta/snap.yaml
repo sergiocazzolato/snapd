@@ -1,0 +1,9 @@
+name: test-snapd-hidraw
+version: 1.0
+summary: Basic hidraw snap
+description: A basic snap which access to hidraw devices
+
+apps:
+  sh:
+    command: ../../../bin/sh
+    plugs: [hidraw]

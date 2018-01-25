@@ -1,0 +1,46 @@
+summary: Ensure that the hidraw interface works.
+
+details: |
+    The hidraw interface allows to access to hidraw device nodes.
+
+environment:
+    CONNECTED_PATTERN: ':hidraw +test-snapd-hidraw'
+    DISCONNECTED_PATTERN: '\- +test-snapd-hidraw:hidraw'
+
+prepare: |
+    . $TESTSLIB/snaps.sh
+    install_local test-snapd-hidraw
+
+restore: |
+    rm -f call.error
+
+execute: |
+    echo "The interface is not connected by default"
+    snap interfaces | MATCH "$DISCONNECTED_PATTERN"
+
+    if ! [ -e /dev/hidraw0 ]; then 
+        echo "The /dev/hidraw0 device does not exist in current system"
+        exit 0
+    fi
+
+    echo "When the interface is connected"
+    snap connect test-snapd-hidraw:hidraw
+    snap interfaces | MATCH "$CONNECTED_PATTERN"
+
+    echo "Then the snap is able to read the device file"
+    test-snapd-hidraw.sh -c "dd if=/dev/hidraw0 of=/dev/null bs=1024 count=1"
+
+    if [ "$(snap debug confinement)" = partial ] ; then
+        exit 0
+    fi
+
+    echo "When the plug is disconnected"
+    snap disconnect test-snapd-hidraw:hidraw
+    snap interfaces | MATCH "$DISCONNECTED_PATTERN"
+
+    echo "Then the snap is not able to read the the device file"
+    if test-snapd-hidraw.sh -c "dd if=/dev/hidraw0 of=/dev/null bs=1024 count=1" 2>${PWD}/call.error; then
+        echo "Expected permission error accessing to /dev/hidraw0"
+        exit 1
+    fi
+    MATCH "Permission denied" < call.error
