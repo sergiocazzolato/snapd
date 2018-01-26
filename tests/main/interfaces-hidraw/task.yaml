@@ -4,6 +4,8 @@ details: |
     The hidraw interface allows to access to hidraw device nodes.
 
 environment:
+    DEVICE: '/dev/hidraw0'
+    FAKE_DEVICE: '/dev/hidraw100'
     CONNECTED_PATTERN: ':hidraw +test-snapd-hidraw'
     DISCONNECTED_PATTERN: '\- +test-snapd-hidraw:hidraw'
 
@@ -11,16 +13,21 @@ prepare: |
     . $TESTSLIB/snaps.sh
     install_local test-snapd-hidraw
 
+    if [ -e $DEVICE ]; then
+        touch $FAKE_DEVICE
+    fi
+
 restore: |
     rm -f call.error
+    rm -f $FAKE_DEVICE
 
 execute: |
     echo "The interface is not connected by default"
     snap interfaces | MATCH "$DISCONNECTED_PATTERN"
 
-    if ! [ -e /dev/hidraw0 ]; then 
-        echo "The /dev/hidraw0 device does not exist in current system"
-        exit 0
+    device=$FAKE_DEVICE
+    if [ -e $DEVICE ]; then
+        device=$DEVICE
     fi
 
     echo "When the interface is connected"
@@ -28,7 +35,7 @@ execute: |
     snap interfaces | MATCH "$CONNECTED_PATTERN"
 
     echo "Then the snap is able to read the device file"
-    test-snapd-hidraw.sh -c "dd if=/dev/hidraw0 of=/dev/null bs=1024 count=1"
+    test-snapd-hidraw.sh -c "dd if=$device of=/dev/null bs=1024 count=1"
 
     if [ "$(snap debug confinement)" = partial ] ; then
         exit 0
@@ -39,8 +46,8 @@ execute: |
     snap interfaces | MATCH "$DISCONNECTED_PATTERN"
 
     echo "Then the snap is not able to read the the device file"
-    if test-snapd-hidraw.sh -c "dd if=/dev/hidraw0 of=/dev/null bs=1024 count=1" 2>${PWD}/call.error; then
-        echo "Expected permission error accessing to /dev/hidraw0"
+    if test-snapd-hidraw.sh -c "dd if=$device of=/dev/null bs=1024 count=1" 2>${PWD}/call.error; then
+        echo "Expected permission error accessing to $device"
         exit 1
     fi
     MATCH "Permission denied" < call.error
