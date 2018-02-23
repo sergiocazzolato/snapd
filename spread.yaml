@@ -238,8 +238,8 @@ backends:
                 username: test
                 password: ubuntu
             - ubuntu-16.04-64:
-                username: ubuntu
-                password:
+                username: test
+                password: ubuntu
             - ubuntu-16.04-32:
                 username: test
                 password: ubuntu
