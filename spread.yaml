@@ -236,19 +236,19 @@ backends:
         systems:
             - ubuntu-14.04-64:
                 username: generic
-                password:
+                password: ubuntu
             - ubuntu-16.04-64:
                 username: generic
-                password:
+                password: ubuntu
             - ubuntu-16.04-32:
                 username: generic
-                password:
+                password: ubuntu
             - ubuntu-18.04-64:
                 username: generic
-                password:
+                password: ubuntu
             - ubuntu-18.04-32:
                 username: generic
-                password:
+                password: ubuntu
 
     linode-sru:
         type: linode
