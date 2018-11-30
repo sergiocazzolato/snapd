@@ -93,7 +93,7 @@ execute: |
         echo "layout locations pointing to SNAP are readable"
 
         test-snapd-layout.sh -c "ls /usr/share/demo/"
-        #test-snapd-layout.sh -c "test -r /usr/share/demo/file"
+        test-snapd-layout.sh -c "test -r /usr/share/demo/file"
         test-snapd-layout.sh -c "test -r /opt/demo/file"
 
         echo "layout locations in dynamically created SNAP directories are writable"
