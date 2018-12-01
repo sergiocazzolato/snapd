@@ -11,7 +11,10 @@ prepare: |
     . "$TESTSLIB"/snaps.sh
     install_local test-snapd-layout
 
+priority: 0
+
 debug: |
+    dmesg
     ls -ld /etc || :
     ls -ld /etc/demo || :
     ls -ld /etc/demo.conf || :
@@ -92,7 +95,10 @@ execute: |
 
         echo "layout locations pointing to SNAP are readable"
 
-        test-snapd-layout.sh -c "test -r /usr/share/demo/file"        
+        test-snapd-layout.sh -c "ls -al /usr" || true
+        test-snapd-layout.sh -c "ls -al /usr/share"  || true
+        test-snapd-layout.sh -c "ls -al /usr/share/demo" || true
+        test-snapd-layout.sh -c "test -r /usr/share/demo/file"
         test-snapd-layout.sh -c "test -r /opt/demo/file"
 
         echo "layout locations in dynamically created SNAP directories are writable"
