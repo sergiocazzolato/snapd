@@ -11,7 +11,7 @@ prepare: |
     . "$TESTSLIB"/snaps.sh
     install_local test-snapd-layout
 
-priority: 0
+priority: -1
 
 debug: |
     dmesg
