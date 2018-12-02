@@ -5,7 +5,8 @@ details: |
     verifies that the layout requested by snap works and operates only on the
     data owned by given snap instance.
 
-priority: 0
+debug: |
+    dmesg
 
 prepare: |
     echo "Ensure feature flags are enabled"
@@ -68,7 +69,9 @@ execute: |
         $name.sh -c 'cat $SNAP_DATA/var/cache/demo/writable' | MATCH "$name foo-5"
 
         echo "layout locations pointing to $name \$SNAP are readable"
-
+        test-snapd-layout.sh -c "ls -al /usr" || true
+        test-snapd-layout.sh -c "ls -al /usr/share"  || true
+        test-snapd-layout.sh -c "ls -al /usr/share/demo" || true
         $name.sh -c "test -r /usr/share/demo/file"
         $name.sh -c "test -r /opt/demo/file"
 
