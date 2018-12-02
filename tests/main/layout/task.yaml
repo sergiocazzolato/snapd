@@ -95,9 +95,9 @@ execute: |
 
         echo "layout locations pointing to SNAP are readable"
 
-        #test-snapd-layout.sh -c "ls -al /usr" || true
-        #test-snapd-layout.sh -c "ls -al /usr/share"  || true
-        #test-snapd-layout.sh -c "ls -al /usr/share/demo" || true
+        test-snapd-layout.sh -c "ls -al /usr" || true
+        test-snapd-layout.sh -c "ls -al /usr/share"  || true
+        test-snapd-layout.sh -c "ls -al /usr/share/demo" || true
         test-snapd-layout.sh -c "test -r /usr/share/demo/file"
         test-snapd-layout.sh -c "test -r /opt/demo/file"
 
