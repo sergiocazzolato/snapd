@@ -67,7 +67,7 @@ backends:
                 image: ubuntu-16.04-64
                 workers: 6
             - ubuntu-core-18-64:
-                image: ubuntu-16.04-64
+                image: ubuntu-18.04-64
                 workers: 6
 
             - debian-9-64:
@@ -453,6 +453,7 @@ prepare: |
     # around. The purpose of this code is to fix some connectivity issues and
     # then apply the delta of the git repository.
 
+
     # apt update is hanging on security.ubuntu.com with IPv6, prefer IPv4 over IPv6
     cat <<EOF > gai.conf
     precedence  ::1/128       50
@@ -461,6 +462,7 @@ prepare: |
     precedence ::/96          20
     precedence ::ffff:0:0/96 100
     EOF
+
     if ! mv gai.conf /etc/gai.conf; then
         echo "/etc/gai.conf is not writable, ubuntu-core system? apt update won't be affected in that case"
         rm -f gai.conf

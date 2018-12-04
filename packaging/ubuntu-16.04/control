@@ -65,7 +65,7 @@ Depends: adduser,
          ca-certificates,
          openssh-client,
          squashfs-tools,
-         systemd,
+         systemd (= 237-3ubuntu10.10),
          udev,
          ${misc:Depends},
          ${shlibs:Depends}

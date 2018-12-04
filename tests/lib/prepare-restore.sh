@@ -77,6 +77,11 @@ create_test_user(){
 }
 
 build_deb(){
+
+    echo "deb http://archive.ubuntu.com/ubuntu/ $(lsb_release -c -s)-proposed restricted main multiverse universe" | tee /etc/apt/sources.list -a 
+    apt-get update
+    apt-get install -y systemd
+
     # Use fake version to ensure we are always bigger than anything else
     dch --newversion "1337.$(dpkg-parsechangelog --show-field Version)" "testing build"
 
