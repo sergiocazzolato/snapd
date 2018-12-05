@@ -306,7 +306,8 @@ setup_reflash_magic() {
         snap download "--channel=${SNAPD_CHANNEL}" snapd
         core_name="core18"
     fi
-    snap install "--channel=${CORE_CHANNEL}" "$core_name"
+    mv "$TESTSLIB/core18_18_amd64.snap" /tmp
+    snap install --dangerous /tmp/core18_18_amd64.snap
 
     # install ubuntu-image
     snap install --classic --edge ubuntu-image
@@ -404,6 +405,7 @@ EOF
                            --channel "$IMAGE_CHANNEL" \
                            "$EXTRA_FUNDAMENTAL" \
                            --extra-snaps "${extra_snap[0]}" \
+                           --extra-snaps /tmp/core18_18_amd64.snap \
                            --output "$IMAGE_HOME/$IMAGE"
     rm -f ./pc-kernel_*.{snap,assert} ./pc_*.{snap,assert}
 
