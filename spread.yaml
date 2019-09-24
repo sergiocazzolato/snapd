@@ -398,6 +398,40 @@ backends:
                 username: test
                 password: ubuntu
 
+    testflinger:
+        key: "$(HOST: echo $SPREAD_LP_KEY:-)"
+        systems:
+            - ubuntu-core-16-arm-64:
+                image: https://cachio.s3.amazonaws.com/images/dragonboard-16-beta/dragonboard.img.xz
+                queue: dragonboard
+                username: ubuntu
+                password: ubuntu
+            - ubuntu-core-16-arm-32:
+                image: https://cachio.s3.amazonaws.com/images/dragonboard-18-beta/dragonboard.img.xz
+                queue: dragonboard
+                username: ubuntu
+                password: ubuntu
+            - ubuntu-core-16-arm-32-pi3:
+                image: https://cachio.s3.amazonaws.com/images/pi3-16-beta/pi3.img.xz
+                queue: rpi3b
+                username: ubuntu
+                password: ubuntu
+            - ubuntu-core-18-arm-32-pi3:
+                image: https://cachio.s3.amazonaws.com/images/pi3-18-beta/pi.img.x
+                queue: rpi3b
+                username: ubuntu
+                password: ubuntu
+            - ubuntu-core-16-arm-32-pi2:
+                image: https://cachio.s3.amazonaws.com/images/pi2-16-beta/pi2.img.xz
+                queue: rpi2
+                username: ubuntu
+                password: ubuntu
+            - ubuntu-core-18-arm-32-pi2:
+                image: https://cachio.s3.amazonaws.com/images/pi2-18-beta/pi.img.xz
+                queue: rpi2
+                username: ubuntu
+                password: ubuntu
+
 path: /home/gopath/src/github.com/snapcore/snapd
 
 exclude:
