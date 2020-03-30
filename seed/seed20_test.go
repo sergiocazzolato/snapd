@@ -20,6 +20,7 @@
 package seed_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -166,6 +167,16 @@ func (s *seed20Suite) TestLoadMetaCore20Minimal(c *C) {
 			Channel:       "20",
 		},
 	})
+
+	// check that PlaceInfo method works
+	pi := essSnaps[0].PlaceInfo()
+	c.Check(pi.Filename(), Equals, "snapd_1.snap")
+	pi = essSnaps[1].PlaceInfo()
+	c.Check(pi.Filename(), Equals, "pc-kernel_1.snap")
+	pi = essSnaps[2].PlaceInfo()
+	c.Check(pi.Filename(), Equals, "core20_1.snap")
+	pi = essSnaps[3].PlaceInfo()
+	c.Check(pi.Filename(), Equals, "pc_1.snap")
 
 	runSnaps, err := seed20.ModeSnaps("run")
 	c.Assert(err, IsNil)
@@ -1799,4 +1810,19 @@ func (s *seed20Suite) TestLoadMetaCore20LocalAssertedSnaps(c *C) {
 			Channel:  "latest/stable",
 		},
 	})
+}
+
+func (s *seed20Suite) TestOpenInvalidLabel(c *C) {
+	invalid := []string{
+		// empty string not included, as it's not a UC20 seed
+		"/bin",
+		"../../bin/bar",
+		":invalid:",
+		"日本語",
+	}
+	for _, label := range invalid {
+		seed20, err := seed.Open(s.SeedDir, label)
+		c.Assert(err, ErrorMatches, fmt.Sprintf("invalid seed system label: %q", label))
+		c.Assert(seed20, IsNil)
+	}
 }
