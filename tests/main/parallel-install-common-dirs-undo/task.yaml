@@ -10,7 +10,7 @@ execute: |
     . "$TESTSLIB"/dirs.sh
 
     # the snap is named 'test-snapd-service'
-    path="$(make_snap test-snapd-service-v2-bad)"
+    path=$("$TESTSTOOLS"/snaps-state pack-local test-snapd-service-v2-bad)
     test -n "$path"
 
     echo "Given a snap that fails to install"
