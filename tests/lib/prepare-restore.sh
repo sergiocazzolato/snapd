@@ -726,6 +726,10 @@ restore_suite_each() {
     tests.invariant check
 
     "$TESTSTOOLS"/fs-state check-monitor
+
+    if ls /dev/sdb1; then
+        rsync -aq --delete --exclude=/backup/proc --exclude=/backup/sys --exclude=/backup/snap /backup /
+    fi
 }
 
 restore_suite() {

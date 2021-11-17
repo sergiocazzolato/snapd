@@ -385,6 +385,12 @@ prepare_classic() {
         mkdir -p /etc/dbus-1/system.d
         systemctl reload dbus.service
     fi
+
+    if ls /dev/sdb1; then
+        mkdir /backup
+        mount /dev/sdb1 /backup
+        rsync -aq --delete --exclude=/backup --exclude=/proc --exclude=/sys --exclude=/snap / /backup
+    fi
 }
 
 repack_snapd_snap_with_deb_content() {
