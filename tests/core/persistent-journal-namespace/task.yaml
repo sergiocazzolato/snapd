@@ -13,8 +13,12 @@ prepare: |
 
 restore: |
   # Stop test service and cleanup
-  snap stop test-snapd-journal-quota.logger
-  snap remove-quota group-one
+  if snap services | MATCH "^test-snapd-journal-quota.logger "; then
+      snap stop test-snapd-journal-quota.logger
+  fi
+  if snap quotas | MATCH "^group-one "; then
+      snap remove-quota group-one
+  fi
 
   # disable persistent journal and reload the journal
   rm -rf /var/log/journal
