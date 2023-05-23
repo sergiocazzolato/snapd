@@ -60,8 +60,7 @@ SYSTEMD_UNITS_DESTDIR="lib/systemd/system/"
 # work around that by constructing the appropriate -I flag by hand.
 GCCGO := $(shell go tool dist env > /dev/null 2>&1 && echo no || echo yes)
 
-BUILDFLAGS:=-pkgdir=$(CURDIR)/_build/std
-BUILDFLAGS+=-ldflags=-w
+BUILDFLAGS:=-ldflags=-w
 # Disable -buildmode=pie mode on all our 32bit platforms
 # (i386 and armhf). For i386 because of LP: #1711052 and for
 # armhf because of LP: #1822738
@@ -166,18 +165,28 @@ override_dh_systemd_enable:
 	dh_systemd_enable
 
 override_dh_clean:
+	echo "date H1"
+	date +"%T.%3N"
+
 	dh_clean
 	$(MAKE) -C data clean
 	# XXX: hacky
 	$(MAKE) -C cmd distclean || true
 	# XXX: hacky^2
 	(cd c-vendor/squashfuse && rm -f snapfuse && make distclean || true )
+	echo "date G1"
+	date +"%T.%3N"
+
 
 override_dh_auto_build:
+	echo "date A1"
+	date +"%T.%3N"
 	# generate dh-golang does not copy modules.txt
 	cp -a vendor/modules.txt _build/src/$(DH_GOPKG)/vendor
 	# usually done via `go generate` but that is not supported on powerpc
 	./mkversion.sh
+	echo "date A2"
+	date +"%T.%3N"
 	# ensure auto-generated version is also in the build-tree
 	(cd _build/src/$(DH_GOPKG)/ && ../../../../../mkversion.sh)
 	# Build golang bits
@@ -185,6 +194,8 @@ override_dh_auto_build:
 	cp -a cmd/snap/test-data/*.gpg _build/src/$(DH_GOPKG)/cmd/snap/test-data/
 	cp -a bootloader/assets/data _build/src/$(DH_GOPKG)/bootloader/assets
 
+	echo "date A3"
+	date +"%T.%3N"
 	# this is the main go build
 
 	# note that dh-golang invokes go generate as the first step, which may invoke
@@ -193,20 +204,34 @@ override_dh_auto_build:
 	PATH="$$(pwd)/packaging/build-tools/:$$PATH" \
 		dh_auto_build -- -mod=vendor $(BUILDFLAGS) $(TAGS) $(GCCGOFLAGS) $(DH_GOPKG)/cmd/...
 
+	echo "date A4"
+	date +"%T.%3N"
 	(cd _build/bin && GOPATH=$$(pwd)/.. go build -mod=vendor $(BUILDFLAGS) $(GCCGOFLAGS) $(SNAP_TAGS) $(DH_GOPKG)/cmd/snap)
+	echo "date A5"
+	date +"%T.%3N"
 	(cd _build/bin && GOPATH=$$(pwd)/.. go build -mod=vendor $(BUILDFLAGS) $(GCCGOFLAGS) $(SNAP_TAGS) $(DH_GOPKG)/cmd/snap-bootstrap)
+	echo "date A6"
+	date +"%T.%3N"
 
 	# Generate static snap-exec, snapctl and snap-update-ns - it somehow includes CGO so
 	# we must force a static build here. We need a static snap-{exec,update-ns}/snapctl
 	# inside the core snap because not all bases will have a libc
 	(cd _build/bin && GOPATH=$$(pwd)/.. CGO_ENABLED=0 go build -mod=vendor $(GCCGOFLAGS) $(DH_GOPKG)/cmd/snap-exec)
+	echo "date A7"
+	date +"%T.%3N"
 	(cd _build/bin && GOPATH=$$(pwd)/.. CGO_ENABLED=0 go build -mod=vendor $(GCCGOFLAGS) $(DH_GOPKG)/cmd/snapctl)
+	echo "date A8"
+	date +"%T.%3N"
 	(cd _build/bin && GOPATH=$$(pwd)/.. go build -mod=vendor --ldflags '-extldflags "-static"' $(GCCGOFLAGS) $(DH_GOPKG)/cmd/snap-update-ns)
+	echo "date A9"
+	date +"%T.%3N"
 
 	# ensure we generated a static build
 	$(shell	if ldd _build/bin/snap-exec; then false "need static build"; fi)
 	$(shell	if ldd _build/bin/snap-update-ns; then false "need static build"; fi)
 	$(shell	if ldd _build/bin/snapctl; then false "need static build"; fi)
+	echo "date A10"
+	date +"%T.%3N"
 
 	# ensure snap-seccomp is build with a static libseccomp on Ubuntu
 ifeq ($(shell dpkg-vendor --query Vendor),Ubuntu)
@@ -219,18 +244,29 @@ ifeq ($(shell dpkg-vendor --query Vendor),Ubuntu)
 	sed -i "s|#cgo LDFLAGS: -l/usr/lib/$(shell dpkg-architecture -qDEB_TARGET_MULTIARCH)/libseccomp.a|#cgo LDFLAGS:|" _build/src/$(DH_GOPKG)/cmd/snap-seccomp/main.go
 endif
 
+	echo "date A11"
+	date +"%T.%3N"
 	# Build C bits, sadly manually
 	cd cmd && ( autoreconf -i -f )
 	cd cmd && ( ./configure --prefix=/usr --libexecdir=/usr/lib/snapd $(VENDOR_ARGS))
 	$(MAKE) -C cmd all
 
+	echo "date A12"
+	date +"%T.%3N"
 	# Generate the real systemd/dbus/env config files
 	$(MAKE) -C data all
 
+	echo "date A13"
+	date +"%T.%3N"
 	# build squashfuse and rename to snapfuse
 	(cd c-vendor/squashfuse && mkdir -p autom4te.cache && ./autogen.sh --disable-demo && ./configure --disable-demo && make && mv squashfuse_ll snapfuse)
+	echo "date A14"
+	date +"%T.%3N"
 
 override_dh_auto_test:
+	echo "date B1"
+	date +"%T.%3N"
+
 	# skip running tests on riscv64 for now because they are too slow and fail
 	# constantly
 ifneq ($(shell dpkg-architecture -qDEB_HOST_ARCH),riscv64)
@@ -254,12 +290,19 @@ ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 	# repair-root
 	strings _build/bin/snap-repair|grep -c "^public-key-sha3-384: nttW6NfBXI_E-00u38W-KH6eiksfQNXuI7IiumoV49_zkbhM0sYTzSnFlwZC-W4t$$"
 endif
+	echo "date B2"
+	date +"%T.%3N"
 ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 	# run the snap-confine tests
 	$(MAKE) -C cmd check
 endif
+	echo "date B3"
+	date +"%T.%3N"
 
 override_dh_install:
+	echo "date C1"
+	date +"%T.%3N"
+
 	# we do not need this in the package, its just needed during build
 	rm -rf ${CURDIR}/debian/tmp/usr/bin/xgettext-go
 	# toolbelt is not shippable
@@ -280,6 +323,9 @@ override_dh_install:
 	# docs generator
 	rm -f ${CURDIR}/debian/tmp/usr/bin/docs
 
+	echo "date C2"
+	date +"%T.%3N"
+
 	# Install snapd's systemd units / upstart jobs, done
 	# here instead of debian/snapd.install because the
 	# ubuntu/14.04 release branch adds/changes bits here
@@ -289,15 +335,26 @@ override_dh_install:
 	# it's a conf file so we're stuck with it
 	mv debian/snapd/etc/profile.d/snapd.sh debian/snapd/etc/profile.d/apps-bin-path.sh
 
+	echo "date C3"
+	date +"%T.%3N"
 	$(MAKE) -C cmd install DESTDIR=$(CURDIR)/debian/tmp
 
 	# Rename the apparmor profile, see dh_apparmor call above for an explanation.
 	mv $(CURDIR)/debian/tmp/etc/apparmor.d/usr.lib.snapd.snap-confine $(CURDIR)/debian/tmp/etc/apparmor.d/usr.lib.snapd.snap-confine.real
 
+	echo "date C4"
+	date +"%T.%3N"
 	dh_install
+	echo "date C5"
+	date +"%T.%3N"
 
 override_dh_auto_install: snap.8
+	echo "date D1"
+	date +"%T.%3N"
+
 	dh_auto_install -O--buildsystem=golang
+	echo "date D2"
+	date +"%T.%3N"
 
 override_dh_golang:
 	# XXX: dh_golang on older versions of ubuntu is not capable to
@@ -313,15 +370,27 @@ snap.8:
 	$(CURDIR)/_build/bin/snap help --man | sed '1 s/^.*/.TH snap 8 "$(shell date --reference=debian/changelog +"%d %B %Y")"/' > $@
 
 override_dh_auto_clean:
+	echo "date E1"
+	date +"%T.%3N"
 	# XXX: workaround old dh-golang inability to remove _build/
-	if [ -d _build ]; then cd _build && GOPATH=$$(pwd) go clean -modcache; fi
-	dh_auto_clean -O--buildsystem=golang
-	rm -vf snap.8
+	if [ ! "$SKIP_BUILD_CLEAN" = "true" ]; then \
+		if [ -d _build ]; then \
+			cd _build && GOPATH=$$(pwd) go clean -modcache; \
+		fi; \
+		dh_auto_clean -O--buildsystem=golang; \
+		rm -vf snap.8; \
+	fi \
 
 override_dh_gencontrol:
+	echo "date F1"
+	date +"%T.%3N"
 	dh_gencontrol -- -VBuilt-Using="$(BUILT_USING)" $(SUBSTVARS)
+	echo "date F2"
+	date +"%T.%3N"
 
 override_dh_systemd_start:
+	echo "date G1"
+	date +"%T.%3N"
 	# Due to https://github.com/systemd/systemd/issues/8102
 	# debhelper supporting --remaining like behaviour here would
 	# have been useful
@@ -331,3 +400,5 @@ override_dh_systemd_start:
 	dh_systemd_start $(DH_SYSTEMD_START_OPTS) snapd.service
 	# Then the rest
 	dh_systemd_start $(DH_SYSTEMD_START_OPTS) $(filter-out snapd.socket snapd.service, $(shell ls debian/snapd/lib/systemd/system/))
+	echo "date G2"
+	date +"%T.%3N"

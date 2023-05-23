@@ -3,6 +3,7 @@ project: snapd
 environment:
     GOHOME: /home/gopath
     GOPATH: $GOHOME
+    GOCACHE: /tmp/go-build
     # On some distros the default GOPROXY setting is 'direct' (eg. Fedora).
     # Some of the external go packages may get removed or could be temporary
     # offline (as happened with maze.io/x/crypt), and then the sources are
@@ -73,6 +74,8 @@ environment:
     # Use the installed snapd and reset the systems without removing snapd
     REUSE_SNAPD: '$(HOST: echo "${SPREAD_REUSE_SNAPD:-0}")'
     EXPERIMENTAL_FEATURES: '$(HOST: echo "${SPREAD_EXPERIMENTAL_FEATURES:-}")'
+    # Skip clean during snapd build process
+    SKIP_BUILD_CLEAN: '$(HOST: echo "${SPREAD_SKIP_BUILD_CLEAN:-}")'
 
     SNAPD_PUBLISHED_VERSION: '$(HOST: echo "$SPREAD_SNAPD_PUBLISHED_VERSION")'
     # Build and use snapd from current branch

@@ -284,6 +284,26 @@ prepare_project() {
         exit 0
     fi
 
+    # Download gocache in case the backend is google
+    if [ "$SPREAD_BACKEND" = "google" ]; then
+        # If the cache file can be retrieved, then untar it in $GOCACHE
+        if wget https://storage.googleapis.com/snapd-spread-tests/snapd-tests/dependencies/snapd-gocache.tar; then
+            mkdir -p "$GOCACHE"
+            tar -xf snapd-gocache.tar -C "$GOCACHE"
+            rm -f snapd-gocache.tar
+        fi
+        if wget https://storage.googleapis.com/snapd-spread-tests/snapd-tests/dependencies/snapd-gopkg.tar; then
+            mkdir -p "$GOPATH"/src/github.com/snapcore/snapd/_build/pkg
+            tar -xf snapd-gopkg.tar -C "$GOPATH"/src/github.com/snapcore/snapd/_build/pkg
+            rm -f snapd-gopkg.tar
+        fi
+        if wget https://storage.googleapis.com/snapd-spread-tests/snapd-tests/dependencies/snapd-gobin.tar; then
+            mkdir -p "$GOPATH"/src/github.com/snapcore/snapd/_build/bin
+            tar -xf snapd-gobin.tar -C "$GOPATH"/src/github.com/snapcore/snapd/_build/bin
+            rm -f snapd-gobin.tar
+        fi
+    fi
+
     if [ "$SPREAD_BACKEND" = qemu ]; then
         if [ -d /etc/apt/apt.conf.d ]; then
             # qemu images may be built with pre-baked proxy settings that can be wrong

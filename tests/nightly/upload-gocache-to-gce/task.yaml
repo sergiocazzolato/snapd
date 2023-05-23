@@ -1,0 +1,55 @@
+summary: Upload gocache to gce bucket
+
+details: |
+    Upload the gocache to gce bucket
+
+systems: [ ubuntu-22.04-64 ]
+
+environment:
+    GOCACHE_FILE: snapd-gocache.tar
+    GOPKG_FILE: snapd-gopkg.tar
+    GOBIN_FILE: snapd-gobin.tar
+    BUCKET_GOCACHE_FILE: gs://snapd-spread-tests/snapd-tests/dependencies/$GOCACHE_FILE
+    BUCKET_GOPKG_FILE: gs://snapd-spread-tests/snapd-tests/dependencies/$GOPKG_FILE
+    BUCKET_GOBIN_FILE: gs://snapd-spread-tests/snapd-tests/dependencies/$GOBIN_FILE
+
+manual: true
+
+prepare: |
+    if [ ! -f "$PROJECT_PATH/sa.json" ]; then
+        echo "Service account file needed to upload go dependencies to gce bucket"
+        exit 1
+    fi
+    if [ -z "$GOCACHE" ]; then
+        echo "No GOCACHE env var defined"
+        exit 1
+    fi
+
+    # Prepare to upload files to gs bucket
+    if ! command -v gcloud &>/dev/null; then
+        snap install --classic google-cloud-sdk
+    fi
+    gcloud auth activate-service-account --key-file="$PROJECT_PATH/sa.json"
+    rm -f "$PROJECT_PATH/sa.json"
+
+restore: |
+    rm -f "$PROJECT_PATH/sa.json"
+
+execute: |
+    ( cd "$GOCACHE" && tar cf "$GOCACHE_FILE" * )
+    ( cd "$GOPATH"/pkg && tar cf "$GOPKG_FILE" * )
+    ( cd "$GOPATH"/src/github.com/snapcore/snapd/_build/bin/ && tar cf "$GOBIN_FILE" *)
+    # Clean the go dependencies and upload the new ones
+    if gsutil ls "$BUCKET_GOCACHE_FILE"; then
+        gsutil rm "$BUCKET_GOCACHE_FILE"
+    fi
+    if gsutil ls "$BUCKET_GOPKG_FILE"; then
+        gsutil rm "$BUCKET_GOPKG_FILE"
+    fi
+    if gsutil ls "$BUCKET_GOBIN_FILE"; then
+        gsutil rm "$BUCKET_GOBIN_FILE"
+    fi
+
+    gsutil cp "$GOCACHE"/"$GOCACHE_FILE" "$BUCKET_GOCACHE_FILE"
+    gsutil cp "$GOPATH"/pkg/"$GOPKG_FILE" "$BUCKET_GOPKG_FILE"
+    gsutil cp "$GOPATH"/src/github.com/snapcore/snapd/_build/bin/"$GOBIN_FILE" "$BUCKET_GOBIN_FILE"
