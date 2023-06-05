@@ -281,6 +281,18 @@ backends:
                   storage: 20G
                   workers: 8
 
+    openstack:
+        plan: cpu2-ram4-disk10
+        halt-timeout: 2h
+        systems:
+            - ubuntu-20.04:
+                  image: ubuntu-focal-daily-amd64
+                  workers: 5
+            - ubuntu-22.04:
+                  image: ubuntu-jammy-daily-amd64
+                  workers: 5
+
+
     qemu-nested:
         memory: 4G
         type: qemu
