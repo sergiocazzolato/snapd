@@ -26,9 +26,14 @@ prepare_snap(){
     echo "lxd-state: setting up proxy for lxc"
     if [ -n "${http_proxy:-}" ]; then
         lxd.lxc config set core.proxy_http "$http_proxy"
+    elif [ -n "${HTTP_PROXY:-}" ]; then
+        lxd.lxc config set core.proxy_http "$HTTP_PROXY"
     fi
+
     if [ -n "${https_proxy:-}" ]; then
         lxd.lxc config set core.proxy_https "$http_proxy"
+    elif [ -n "${HTTPS_PROXY:-}" ]; then
+        lxd.lxc config set core.proxy_http "$HTTPS_PROXY"
     fi
 }
 

@@ -13,6 +13,23 @@ environment:
 debug: |
   "$TESTSTOOLS"/journal-state get-log -u snap.docker.dockerd
 
+prepare: |
+  # ensure the /etc/environment file is configured properly
+  if [ -n "$HTTP_PROXY" ] || [ -n "$HTTPS_PROXY" ]; then
+    cp /etc/environment /etc/environment.old
+  fi
+  if [ -n "$HTTP_PROXY" ]; then
+    echo "HTTP_PROXY=$HTTP_PROXY" >> /etc/environment
+  fi
+  if [ -n "$HTTPS_PROXY" ]; then
+    echo "HTTPS_PROXY=$HTTPS_PROXY" >> /etc/environment
+  fi
+
+restore: |
+  if [ -f /etc/environment.old ]; then
+      mv /etc/environment.old /etc/environment
+  fi
+
 execute: |
   if [ "$SPREAD_REBOOT" = 0 ]; then
     # ubuntu trusty is not supported anymore

@@ -35,6 +35,18 @@ prepare: |
         tests.cleanup defer snap remove --purge test-snapd-curl
     fi
 
+    # ensure the /etc/environment file is configured properly
+    if [ -n "$HTTP_PROXY" ] || [ -n "$HTTPS_PROXY" ]; then
+        cp /etc/environment /etc/environment.old
+    fi
+    if [ -n "$HTTP_PROXY" ]; then
+        echo "HTTP_PROXY=$HTTP_PROXY" >> /etc/environment
+    fi
+    if [ -n "$HTTPS_PROXY" ]; then
+        echo "HTTPS_PROXY=$HTTPS_PROXY" >> /etc/environment
+    fi
+
+
     # The default timeout for the configure hook is 5min - however in the
     # testsuite this is lowered to 30 seconds. We need to undo this for the
     # microk8s spread test because it really take a bit to get configured.
@@ -56,6 +68,10 @@ restore: |
         userdel -f "$user" || userdel -f --extrausers "$user" || true
         groupdel "$user" || groupdel --extrausers "$user" || true
     done
+
+    if [ -f /etc/environment.old ]; then
+        mv /etc/environment.old /etc/environment
+    fi
 
 execute: |
     snap install --channel="$CHANNEL" microk8s
