@@ -9,6 +9,17 @@ details: |
 systems: [-ubuntu-14.04-64]
 
 prepare: |
+    # ensure the /etc/environment file is configured properly
+    if [ -n "$HTTP_PROXY" ] || [ -n "$HTTPS_PROXY" ]; then
+        cp /etc/environment /etc/environment.old
+    fi
+    if [ -n "$HTTP_PROXY" ]; then
+        echo "HTTP_PROXY=$HTTP_PROXY" >> /etc/environment
+    fi
+    if [ -n "$HTTPS_PROXY" ]; then
+        echo "HTTPS_PROXY=$HTTPS_PROXY" >> /etc/environment
+    fi
+
     # build and install the strict test snap
     snap pack container-mgr-snap
     snap install --dangerous test-snapd-container-mgrs*.snap
@@ -34,6 +45,11 @@ prepare: |
         snap pack classic-container-mgr-snap
         snap install --dangerous --classic test-snapd-classic-container-mgrs*.snap
     fi
+
+restore: |
+  if [ -f /etc/environment.old ]; then
+      mv /etc/environment.old /etc/environment
+  fi
 
 execute: |
     #shellcheck source=tests/lib/systems.sh
