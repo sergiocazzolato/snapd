@@ -7,6 +7,17 @@ environment:
     SPECIAL_USER_NAME/postgres: postgres
 
 prepare: |
+    # ensure the /etc/environment file is configured properly
+    if [ -n "$HTTP_PROXY" ] || [ -n "$HTTPS_PROXY" ]; then
+        cp /etc/environment /etc/environment.old
+    fi
+    if [ -n "$HTTP_PROXY" ]; then
+        echo "HTTP_PROXY=$HTTP_PROXY" >> /etc/environment
+    fi
+    if [ -n "$HTTPS_PROXY" ]; then
+        echo "HTTPS_PROXY=$HTTPS_PROXY" >> /etc/environment
+    fi
+
     echo "Having the test-snapd-classic-confinement snap installed"
     "$TESTSTOOLS"/snaps-state install-local test-snapd-classic-confinement --classic
 
@@ -41,6 +52,10 @@ restore: |
             apt autoremove --purge -y postgresql
             ;;
     esac
+
+    if [ -f /etc/environment.old ]; then
+        mv /etc/environment.old /etc/environment
+    fi
 
 execute: |
     echo "Check the home for the user $SPECIAL_USER_NAME is correct"
