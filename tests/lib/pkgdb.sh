@@ -547,6 +547,7 @@ pkg_dependencies_ubuntu_classic(){
         gnome-keyring
         jq
         man
+        net-tools
         nfs-kernel-server
         printer-driver-cups-pdf
         python3-dbus
