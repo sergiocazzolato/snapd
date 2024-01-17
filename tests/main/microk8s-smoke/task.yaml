@@ -41,9 +41,13 @@ prepare: |
     fi
     if [ -n "$HTTP_PROXY" ]; then
         echo "HTTP_PROXY=$HTTP_PROXY" >> /etc/environment
+        echo "http_proxy=$HTTP_PROXY" >> /etc/environment
+        echo "NO_PROXY=10.0.0.0/8,192.168.0.0/16,127.0.0.1,172.16.0.0/16" >> /etc/environment
+        echo "no_proxy=10.0.0.0/8,192.168.0.0/16,127.0.0.1,172.16.0.0/16" >> /etc/environment
     fi
     if [ -n "$HTTPS_PROXY" ]; then
         echo "HTTPS_PROXY=$HTTPS_PROXY" >> /etc/environment
+        echo "https_proxy=$HTTPS_PROXY" >> /etc/environment
     fi
 
 
