@@ -53,6 +53,8 @@ execute: |
                 GOPATH=/tmp/static-unit-tests \
                 ${skip:-} \
                 SKIP_TESTS_FORMAT_CHECK=1 \
+                HTTP_PROXY=$HTTP_PROXY \
+                HTTPS_PROXY=$HTTPS_PROXY \
                 ./run-checks --static"
         else
             tests.session -u test exec sh -c "cd /tmp/static-unit-tests/src/github.com/snapcore/snapd && \
@@ -60,6 +62,8 @@ execute: |
                 GOPATH=/tmp/static-unit-tests \
                 SKIP_COVERAGE=1 \
                 CC=$VARIANT \
+                HTTP_PROXY=$HTTP_PROXY \
+                HTTPS_PROXY=$HTTPS_PROXY \
                 ./run-checks --unit"
         fi
     else
@@ -86,6 +90,9 @@ execute: |
                 GOPATH=/tmp/static-unit-tests \
                 ${skip:-} \
                 SKIP_TESTS_FORMAT_CHECK=1 \
+                HTTP_PROXY=$HTTP_PROXY \
+                HTTPS_PROXY=$HTTPS_PROXY \
+
                 ./run-checks --static" test
         else
             su -l -c "cd /tmp/static-unit-tests/src/github.com/snapcore/snapd && \
@@ -93,6 +100,8 @@ execute: |
                 GOPATH=/tmp/static-unit-tests \
                 SKIP_COVERAGE=1 \
                 CC=$VARIANT \
+                HTTP_PROXY=$HTTP_PROXY \
+                HTTPS_PROXY=$HTTPS_PROXY \
                 ./run-checks --unit" test
         fi
     fi

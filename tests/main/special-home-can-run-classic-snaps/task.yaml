@@ -7,17 +7,6 @@ environment:
     SPECIAL_USER_NAME/postgres: postgres
 
 prepare: |
-    # ensure the /etc/environment file is configured properly
-    if [ -n "$HTTP_PROXY" ] || [ -n "$HTTPS_PROXY" ]; then
-        cp /etc/environment /etc/environment.old
-    fi
-    if [ -n "$HTTP_PROXY" ]; then
-        echo "HTTP_PROXY=$HTTP_PROXY" >> /etc/environment
-    fi
-    if [ -n "$HTTPS_PROXY" ]; then
-        echo "HTTPS_PROXY=$HTTPS_PROXY" >> /etc/environment
-    fi
-
     echo "Having the test-snapd-classic-confinement snap installed"
     "$TESTSTOOLS"/snaps-state install-local test-snapd-classic-confinement --classic
 
@@ -29,8 +18,8 @@ prepare: |
             apt-get install -y default-jre-headless
             curl -fsSL https://pkg.jenkins.io/debian/jenkins.io-2023.key | sudo tee /usr/share/keyrings/jenkins-keyring.asc > /dev/null
             echo 'deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian binary/' | sudo tee /etc/apt/sources.list.d/jenkins.list > /dev/null
-            apt update
-            apt install -y jenkins
+            http_proxy="$HTTP_PROXY" https_proxy="$HTTP_PROXY" apt update
+            http_proxy="$HTTP_PROXY" https_proxy="$HTTP_PROXY" apt install -y jenkins
             ;;
         postgres)
             apt install -y postgresql
@@ -52,10 +41,6 @@ restore: |
             apt autoremove --purge -y postgresql
             ;;
     esac
-
-    if [ -f /etc/environment.old ]; then
-        mv /etc/environment.old /etc/environment
-    fi
 
 execute: |
     echo "Check the home for the user $SPECIAL_USER_NAME is correct"
