@@ -58,6 +58,15 @@ prepare: |
         exit 0
     fi
 
+    # TODO: remove this when snapd is based on either core20 or core22
+    if [ -n "$HTTPS_PROXY" ] && [ "$SNAPCRAFT_BUILD_ENVIRONMENT" = "lxd" ]; then
+        # as snap snap is built using snapdcraft 4.x, this version of snapcraft
+        # doesn't support the noproxy configuration and the build process fails
+        # trying to access to ppa.launchpad.net
+        echo "Skipping LXD build when proxy is set"
+        exit 0
+    fi
+
     if os.query is-fedora || os.query is-arch-linux || os.query is-centos; then
         # in order to install classic snaps, we need to setup the /snap 
         # symlink on these distros
@@ -145,6 +154,15 @@ execute: |
         exit 0
     fi
 
+    # TODO: remove this when snapd is based on either core20 or core22
+    if [ -n "$HTTPS_PROXY" ] && [ "$SNAPCRAFT_BUILD_ENVIRONMENT" = "lxd" ]; then
+        # as snap snap is built using snapdcraft 4.x, this version of snapcraft
+        # doesn't support the noproxy configuration and the build process fails
+        # trying to access to ppa.launchpad.net
+        echo "Skipping LXD build when proxy is set"
+        exit 0
+    fi
+
     if [ "$SPREAD_REBOOT" != "0" ]; then
       if os.query is-trusty; then
         # seems we have to kick trusty along
@@ -178,7 +196,10 @@ execute: |
     fi
 
     echo "Build the snap"
-    snap run snapcraft snap --output=snapd_spread-test.snap
+    export http_proxy="$HTTP_PROXY"
+    export https_proxy="$HTTPS_PROXY"
+    export no_proxy=
+    snap run snapcraft snap --output=snapd_spread-test.snap --http-proxy="$HTTP_PROXY" --https-proxy="$HTTPS_PROXY"
     popd
 
     mv "$PROJECT_PATH/snapd_spread-test.snap" "$PWD/snapd_spread-test.snap"

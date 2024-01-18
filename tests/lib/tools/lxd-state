@@ -33,7 +33,7 @@ prepare_snap(){
     if [ -n "${https_proxy:-}" ]; then
         lxd.lxc config set core.proxy_https "$http_proxy"
     elif [ -n "${HTTPS_PROXY:-}" ]; then
-        lxd.lxc config set core.proxy_http "$HTTPS_PROXY"
+        lxd.lxc config set core.proxy_https "$HTTPS_PROXY"
     fi
 }
 
