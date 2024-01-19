@@ -3,7 +3,11 @@
 set -e
 
 echo Obtaining dependencies
-http_proxy="$HTTP_PROXY" HTTP_PROXY="$HTTP_PROXY" https_proxy="$HTTPS_PROXY" HTTPS_PROXY="$HTTPS_PROXY" go mod vendor
+export http_proxy="$HTTP_PROXY"
+export HTTP_PROXY="$HTTP_PROXY"
+export https_proxy="$HTTPS_PROXY"
+export HTTPS_PROXY="$HTTPS_PROXY"
+go mod vendor
 
 echo Obtaining c-dependencies
 (cd c-vendor && ./vendor.sh)
