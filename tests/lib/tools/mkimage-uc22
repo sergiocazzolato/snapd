@@ -150,7 +150,7 @@ install_data_partition() {
     [ -e "$DESTDIR"/dev/urandom ] || mknod -m 666 "$DESTDIR"/dev/urandom c 1 9
 
     # ensure resolving works inside the chroot
-    cat /etc/resolv.conf | grep -E "^nameserver" | tee -a "$DESTDIR"/etc/resolv.conf
+    grep -E "^nameserver" /etc/resolv.conf | tee -a "$DESTDIR"/etc/resolv.conf
 
     local pkgs="snapd ssh openssh-server sudo iproute2 iputils-ping isc-dhcp-client netplan.io vim-tiny kmod cloud-init jq update-notifier-common"
     echo "mkimage-uc22: installing additional packages: $pkgs"
