@@ -89,7 +89,7 @@ get_assets() {
         cp "$BASE_IMAGE_PATH" "$CACHE"
     else
         echo "mkimage-uc22: downloading the ubuntu classic base"
-        wget -c -P "$CACHE" "$BASE_IMAGE_URL"
+        wget -qc -P "$CACHE" "$BASE_IMAGE_URL"
     fi    
 
     echo "mkimage-uc22: image assets ready"
@@ -141,21 +141,21 @@ install_data_partition() {
     SEED_LABEL="classic"
 
     echo "mkimage-uc22: copying base filesystem"
-    sudo tar -C "$DESTDIR" -xf "$CACHE"/ubuntu-base-22.04-base-amd64.tar.gz
+    tar -C "$DESTDIR" -xf "$CACHE"/ubuntu-base-22.04-base-amd64.tar.gz
 
     echo "mkimage-uc22: creating basic devices to be able to install packages"
-    [ -e "$DESTDIR"/dev/null ] || sudo mknod -m 666 "$DESTDIR"/dev/null c 1 3
-    [ -e "$DESTDIR"/dev/zero ] || sudo mknod -m 666 "$DESTDIR"/dev/zero c 1 5
-    [ -e "$DESTDIR"/dev/random ] || sudo mknod -m 666 "$DESTDIR"/dev/random c 1 8
-    [ -e "$DESTDIR"/dev/urandom ] || sudo mknod -m 666 "$DESTDIR"/dev/urandom c 1 9
+    [ -e "$DESTDIR"/dev/null ] || mknod -m 666 "$DESTDIR"/dev/null c 1 3
+    [ -e "$DESTDIR"/dev/zero ] || mknod -m 666 "$DESTDIR"/dev/zero c 1 5
+    [ -e "$DESTDIR"/dev/random ] || mknod -m 666 "$DESTDIR"/dev/random c 1 8
+    [ -e "$DESTDIR"/dev/urandom ] || mknod -m 666 "$DESTDIR"/dev/urandom c 1 9
 
     # ensure resolving works inside the chroot
-    echo "nameserver 8.8.8.8" | sudo tee -a "$DESTDIR"/etc/resolv.conf
-    
+    cat /etc/resolv.conf | grep -E "^nameserver" | tee -a "$DESTDIR"/etc/resolv.conf
+
     local pkgs="snapd ssh openssh-server sudo iproute2 iputils-ping isc-dhcp-client netplan.io vim-tiny kmod cloud-init jq update-notifier-common"
     echo "mkimage-uc22: installing additional packages: $pkgs"
-    sudo chroot "$DESTDIR" /usr/bin/sh -c "DEBIAN_FRONTEND=noninteractive apt -qq update"    
-    sudo chroot "$DESTDIR" /usr/bin/sh -c \
+    chroot "$DESTDIR" /usr/bin/sh -c "DEBIAN_FRONTEND=noninteractive apt -qq update"
+    chroot "$DESTDIR" /usr/bin/sh -c \
          "DEBIAN_FRONTEND=noninteractive apt -qq install --no-install-recommends -y $pkgs" < /dev/null > /dev/null
 
     echo "mkimage-uc22: configuring netplan"
@@ -168,22 +168,22 @@ network:
       dhcp4: true
   version: 2
 EOF
-    sudo cp "$CACHE"/00-ethernet.yaml "$DESTDIR"/etc/netplan
+    cp "$CACHE"/00-ethernet.yaml "$DESTDIR"/etc/netplan
 
     echo "mkimage-uc22: mounting bits needed to be able to update boot assets"
-    sudo mkdir -p "$DESTDIR"/boot/grub "$DESTDIR"/boot/efi
-    sudo tee "$DESTDIR"/etc/fstab <<'EOF'
+    mkdir -p "$DESTDIR"/boot/grub "$DESTDIR"/boot/efi
+    tee "$DESTDIR"/etc/fstab <<'EOF'
 /run/mnt/ubuntu-boot/EFI/ubuntu /boot/grub none bind 0 0
 EOF
 
     echo "mkimage-uc22: creating users"
-    sudo chroot "$DESTDIR" /usr/sbin/adduser --disabled-password --gecos "" user1
-    printf "ubuntu\nubuntu\n" | sudo chroot "$DESTDIR" /usr/bin/passwd user1
-    echo "user1 ALL=(ALL) NOPASSWD:ALL" | sudo tee -a "$DESTDIR"/etc/sudoers
+    chroot "$DESTDIR" /usr/sbin/adduser --disabled-password --gecos "" user1
+    printf "ubuntu\nubuntu\n" | chroot "$DESTDIR" /usr/bin/passwd user1
+    echo "user1 ALL=(ALL) NOPASSWD:ALL" | tee -a "$DESTDIR"/etc/sudoers
 
     # set password for root user
-    sudo chroot "$DESTDIR" /usr/bin/sh -c 'echo root:root | chpasswd'
-    sudo tee -a "$DESTDIR/etc/ssh/sshd_config" <<'EOF'
+    chroot "$DESTDIR" /usr/bin/sh -c 'echo root:root | chpasswd'
+    tee -a "$DESTDIR/etc/ssh/sshd_config" <<'EOF'
 PermitRootLogin yes
 PasswordAuthentication yes
 EOF
@@ -202,11 +202,11 @@ grade=dangerous
 model_sign_key_id=9tydnLa6MTJ-jaQTFUXEwHl1yRx7ZS4K5cyFDhYDcPzhS7uyEkDxdUjg9g08BtNn
 current_kernel_command_lines=["snapd_recovery_mode=run console=ttyS0 console=tty1 panic=-1"]
 EOF
-    sudo cp modeenv "$DESTDIR"/var/lib/snapd/
+    cp modeenv "$DESTDIR"/var/lib/snapd/
     # needed from the beginning in ubuntu-data as these are mounted by snap-bootstrap
     # (UC also has base here, but we do not mount it from initramfs in classic)
-    sudo mkdir -p "$DESTDIR"/var/lib/snapd/snaps/
-    sudo cp "$CACHE"/"$(find_snap "$CACHE" pc-kernel)" "$CACHE"/"$(find_snap "$CACHE" pc)" \
+    mkdir -p "$DESTDIR"/var/lib/snapd/snaps/
+    cp "$CACHE"/"$(find_snap "$CACHE" pc-kernel)" "$CACHE"/"$(find_snap "$CACHE" pc)" \
          "$DESTDIR"/var/lib/snapd/snaps/
 
     # clean classic-seed dir
@@ -242,7 +242,7 @@ populate_image() {
 
     mkdir -p "$MNT"
     local loop loop_esp loop_boot loop_save loop_data
-    loop=$(sudo kpartx -asv "$IMG" | head -n1 | cut -d' ' -f3)
+    loop=$(kpartx -asv "$IMG" | head -n1 | cut -d' ' -f3)
     loop=${loop%p*}
     loop_esp="${loop}"p2
     loop_boot="${loop}"p3
@@ -250,26 +250,26 @@ populate_image() {
     loop_data="${loop}"p5
 
     # XXX: on a real UC device this the ESP is "ubuntu-seed"
-    sudo mkfs.fat -n ubuntu-seed /dev/mapper/"$loop_esp"
-    sudo mkfs.ext4 -L ubuntu-boot -q /dev/mapper/"$loop_boot"
-    sudo mkfs.ext4 -L ubuntu-save -q /dev/mapper/"$loop_save"
-    sudo mkfs.ext4 -L ubuntu-data -q /dev/mapper/"$loop_data"
+    mkfs.fat -n ubuntu-seed /dev/mapper/"$loop_esp"
+    mkfs.ext4 -L ubuntu-boot -q /dev/mapper/"$loop_boot"
+    mkfs.ext4 -L ubuntu-save -q /dev/mapper/"$loop_save"
+    mkfs.ext4 -L ubuntu-data -q /dev/mapper/"$loop_data"
     for name in esp ubuntu-boot ubuntu-save ubuntu-data; do
         mkdir -p "$MNT"/"$name"
     done
-    sudo mount /dev/mapper/"$loop_esp" "$MNT"/esp
-    sudo mount /dev/mapper/"$loop_boot" "$MNT"/ubuntu-boot
-    sudo mount /dev/mapper/"$loop_save" "$MNT"/ubuntu-save
-    sudo mount /dev/mapper/"$loop_data" "$MNT"/ubuntu-data
+    mount /dev/mapper/"$loop_esp" "$MNT"/esp
+    mount /dev/mapper/"$loop_boot" "$MNT"/ubuntu-boot
+    mount /dev/mapper/"$loop_save" "$MNT"/ubuntu-save
+    mount /dev/mapper/"$loop_data" "$MNT"/ubuntu-data
 
     # install things into the image
     install_data_partition "$MNT"/ubuntu-data "$CACHE" "$MODEL_ASSERTION"
 
     # ESP partition just chainloads into ubuntu-boot
     # XXX: do we want this given that we don't have recovery systems?
-    sudo mkdir -p "$MNT"/esp/EFI/boot
-    sudo cp "$CACHE"/snap-pc/grubx64.efi "$MNT"/esp/EFI/boot
-    sudo cp "$CACHE"/snap-pc/shim.efi.signed "$MNT"/esp/EFI/boot/bootx64.efi
+    mkdir -p "$MNT"/esp/EFI/boot
+    cp "$CACHE"/snap-pc/grubx64.efi "$MNT"/esp/EFI/boot
+    cp "$CACHE"/snap-pc/shim.efi.signed "$MNT"/esp/EFI/boot/bootx64.efi
     cat > "$CACHE"/esp-grub.cfg <<'EOF'
 set default=0
 set timeout=3
@@ -279,15 +279,15 @@ menuentry "Continue to run mode" --hotkey=n --id=run {
     chainloader ($boot_fs)/EFI/boot/grubx64.efi
 }
 EOF
-    sudo mkdir -p "$MNT"/esp/EFI/ubuntu
-    sudo cp "$CACHE"/esp-grub.cfg "$MNT"/esp/EFI/ubuntu/grub.cfg
+    mkdir -p "$MNT"/esp/EFI/ubuntu
+    cp "$CACHE"/esp-grub.cfg "$MNT"/esp/EFI/ubuntu/grub.cfg
 
     # ubuntu-boot
-    sudo mkdir -p "$MNT"/ubuntu-boot/EFI/boot
-    sudo cp -a "$CACHE"/snap-pc/grubx64.efi "$MNT"/ubuntu-boot/EFI/boot
-    sudo cp -a "$CACHE"/snap-pc/shim.efi.signed "$MNT"/ubuntu-boot/EFI/boot/bootx64.efi
+    mkdir -p "$MNT"/ubuntu-boot/EFI/boot
+    cp -a "$CACHE"/snap-pc/grubx64.efi "$MNT"/ubuntu-boot/EFI/boot
+    cp -a "$CACHE"/snap-pc/shim.efi.signed "$MNT"/ubuntu-boot/EFI/boot/bootx64.efi
 
-    sudo mkdir -p "$MNT"/ubuntu-boot/EFI/ubuntu
+    mkdir -p "$MNT"/ubuntu-boot/EFI/ubuntu
     cat > "$CACHE"/grub.cfg <<'EOF'
 set default=0
 set timeout=3
@@ -336,23 +336,23 @@ else
     echo "missing kernel at $prefix/$kernel!"
 fi
 EOF
-    sudo cp -a "$CACHE"/grub.cfg "$MNT"/ubuntu-boot/EFI/ubuntu/
+    cp -a "$CACHE"/grub.cfg "$MNT"/ubuntu-boot/EFI/ubuntu/
     # This must be exactly 1024 bytes
     local GRUBENV="# GRUB Environment Block
 #######################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################"
     printf "%s" "$GRUBENV" > "$CACHE"/grubenv
-    sudo cp -a "$CACHE"/grubenv "$MNT"/ubuntu-boot/EFI/ubuntu/grubenv
-    sudo mkdir -p "$MNT"/ubuntu-boot/device/
-    sudo cp -a "$MODEL_ASSERTION" "$MNT"/ubuntu-boot/device/model
+    cp -a "$CACHE"/grubenv "$MNT"/ubuntu-boot/EFI/ubuntu/grubenv
+    mkdir -p "$MNT"/ubuntu-boot/device/
+    cp -a "$MODEL_ASSERTION" "$MNT"/ubuntu-boot/device/model
 
     # kernel
-    sudo mkdir -p "$MNT"/ubuntu-boot/EFI/ubuntu/"$KERNEL_SNAP"
-    sudo cp -a "$CACHE"/snap-pc-kernel/kernel.efi "$MNT"/ubuntu-boot/EFI/ubuntu/"$KERNEL_SNAP"
-    sudo ln -sf "$KERNEL_SNAP"/kernel.efi "$MNT"/ubuntu-boot/EFI/ubuntu/kernel.efi
+    mkdir -p "$MNT"/ubuntu-boot/EFI/ubuntu/"$KERNEL_SNAP"
+    cp -a "$CACHE"/snap-pc-kernel/kernel.efi "$MNT"/ubuntu-boot/EFI/ubuntu/"$KERNEL_SNAP"
+    ln -sf "$KERNEL_SNAP"/kernel.efi "$MNT"/ubuntu-boot/EFI/ubuntu/kernel.efi
 
     # cleanup
     sync
-    sudo umount "$MNT"/ubuntu-*
+    umount "$MNT"/ubuntu-*
 }
 
 replace_initramfs_bits() {
@@ -393,10 +393,10 @@ replace_images_files() {
 
     replace_initramfs_bits "$CACHE" "$SNAPD_BINPATH"
 
-    loop=$(sudo kpartx -asv "$IMG" | head -n1 | cut -d' ' -f3)
+    loop=$(kpartx -asv "$IMG" | head -n1 | cut -d' ' -f3)
     loop=${loop%p*}
     loop_boot="$loop"p3
-    sudo mount /dev/mapper/"$loop_boot" "$MNT"/ubuntu-boot
+    mount /dev/mapper/"$loop_boot" "$MNT"/ubuntu-boot
 
     # copy kernel.efi with modified initramfs
     local subpath
@@ -412,13 +412,13 @@ replace_images_files() {
     fi
     # replace snapd in data partition with the one passed as parameter
     local data_mnt="$loop"p5
-    sudo mount /dev/mapper/"$data_mnt" "$MNT"/data
-    sudo cp "$SNAPD_DEB" "$MNT"/data/snapd.deb
-    sudo chroot "$MNT"/data apt install -qq -y --no-install-recommends ./snapd.deb < /dev/null > /dev/null
-    sudo rm "$MNT"/data/snapd.deb
+    mount /dev/mapper/"$data_mnt" "$MNT"/data
+    cp "$SNAPD_DEB" "$MNT"/data/snapd.deb
+    chroot "$MNT"/data apt install -qq -y --no-install-recommends ./snapd.deb < /dev/null > /dev/null
+    rm "$MNT"/data/snapd.deb
     # enable debug traces
-    sudo mkdir -p "$MNT"/data/etc/systemd/system/snapd.service.d/
-    sudo tee "$MNT"/data/etc/systemd/system/snapd.service.d/override.conf <<'EOF'
+    mkdir -p "$MNT"/data/etc/systemd/system/snapd.service.d/
+    tee "$MNT"/data/etc/systemd/system/snapd.service.d/override.conf <<'EOF'
 [Service]
 Environment=SNAPD_DEBUG=1
 EOF
