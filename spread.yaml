@@ -299,19 +299,19 @@ backends:
         groups: [default]
         systems:
             - ubuntu-18.04-64:
-                image: auto-sync/ubuntu-bionic-18.04-amd64-server-20230607-disk1.img
+                image: ubuntu-bionic-18.04-amd64
                 workers: 8
             - ubuntu-20.04-64:
-                image: auto-sync/ubuntu-focal-20.04-amd64-server-20231129-disk1.img
+                image: ubuntu-focal-20.04-amd64
                 workers: 8
             - ubuntu-20.04-arm-64:
-                image: auto-sync/ubuntu-focal-20.04-arm64-server-20231129-disk1.img
+                image: ubuntu-focal-20.04-arm64
                 workers: 1
             - ubuntu-22.04-64:
-                image: auto-sync/ubuntu-jammy-22.04-amd64-server-20231211-disk1.img
+                image: ubuntu-jammy-22.04-amd64
                 workers: 8
             - ubuntu-22.04-arm-64:
-                image: auto-sync/ubuntu-jammy-22.04-arm64-server-20231211-disk1.img
+                image: ubuntu-jammy-22.04-arm64
                 workers: 1
 
     qemu-nested:
