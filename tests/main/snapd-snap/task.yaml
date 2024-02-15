@@ -59,6 +59,7 @@ prepare: |
     fi
 
     # TODO: remove this when snapd is based on either core20 or core22
+    # shellcheck disable=SC2153
     if [ -n "$HTTPS_PROXY" ] && [ "$SNAPCRAFT_BUILD_ENVIRONMENT" = "lxd" ]; then
         # as snap snap is built using snapdcraft 4.x, this version of snapcraft
         # doesn't support the noproxy configuration and the build process fails
@@ -196,7 +197,9 @@ execute: |
     fi
 
     echo "Build the snap"
+    # shellcheck disable=SC2153
     export http_proxy="$HTTP_PROXY"
+    # shellcheck disable=SC2153
     export https_proxy="$HTTPS_PROXY"
     export no_proxy=
     snap run snapcraft snap --output=snapd_spread-test.snap --http-proxy="$HTTP_PROXY" --https-proxy="$HTTPS_PROXY"

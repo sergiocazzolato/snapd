@@ -38,18 +38,17 @@ prepare: |
     # ensure the /etc/environment file is configured properly
     if [ -n "$HTTP_PROXY" ] || [ -n "$HTTPS_PROXY" ]; then
         cp /etc/environment /etc/environment.old
+        echo "NO_PROXY=10.0.0.0/8,192.168.0.0/16,127.0.0.1,172.16.0.0/16" >> /etc/environment
+        echo "no_proxy=10.0.0.0/8,192.168.0.0/16,127.0.0.1,172.16.0.0/16" >> /etc/environment
     fi
     if [ -n "$HTTP_PROXY" ]; then
         echo "HTTP_PROXY=$HTTP_PROXY" >> /etc/environment
         echo "http_proxy=$HTTP_PROXY" >> /etc/environment
-        echo "NO_PROXY=10.0.0.0/8,192.168.0.0/16,127.0.0.1,172.16.0.0/16" >> /etc/environment
-        echo "no_proxy=10.0.0.0/8,192.168.0.0/16,127.0.0.1,172.16.0.0/16" >> /etc/environment
     fi
     if [ -n "$HTTPS_PROXY" ]; then
         echo "HTTPS_PROXY=$HTTPS_PROXY" >> /etc/environment
         echo "https_proxy=$HTTPS_PROXY" >> /etc/environment
     fi
-
 
     # The default timeout for the configure hook is 5min - however in the
     # testsuite this is lowered to 30 seconds. We need to undo this for the
