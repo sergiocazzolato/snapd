@@ -37,6 +37,47 @@ prepare_snap(){
     fi
 }
 
+launch(){
+    # Currently the remote and image to launch is determined based
+    # on the running system.
+    NAME=
+    FLAGS=
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -*)
+                FLAGS="$FLAGS $1 $2"
+                shift 2
+                ;;
+            *)
+                NAME=$1
+                shift
+                ;;
+        esac
+    done
+
+    if [ -z "$NAME" ]; then
+        echo "name required to launch lxd container"
+        exit 1
+    fi
+    REMOTE=ubuntu
+    # There isn't an official image for noble yet, let's use the daily one
+    if os.query is-ubuntu 24.04; then
+        REMOTE=ubuntu-daily
+    fi
+    VERSION_ID="$(. /etc/os-release && echo "$VERSION_ID" )"
+    # shellcheck disable=SC2086
+    lxd.lxc launch --quiet "$REMOTE:$VERSION_ID" "$NAME" $FLAGS
+
+    echo "Setting up proxy *inside* the container"
+    if [ -n "${http_proxy:-}" ]; then
+        lxd.lxc exec "$NAME" -- sh -c "echo http_proxy=$http_proxy >> /etc/environment"
+    fi
+    if [ -n "${https_proxy:-}" ]; then
+        lxd.lxc exec "$NAME" -- sh -c "echo https_proxy=$https_proxy >> /etc/environment"
+    fi
+
+}
+
 main() {
     if [ $# -eq 0 ]; then
         show_help
@@ -79,6 +120,10 @@ main() {
         prepare-snap)
                 shift
                 prepare_snap "$@"
+            ;;
+        launch)
+                shift
+                launch "$@"
             ;;
         *)
             echo "lxd-state: unknown command $*" >&2

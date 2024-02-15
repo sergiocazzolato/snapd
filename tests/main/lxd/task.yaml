@@ -85,16 +85,8 @@ execute: |
     # distro we build on. So we need to launch the right ubuntu version.
     # prep two containers, the my-ubuntu normal container and the
     # my-nesting-ubuntu nesting container
-
-    # There isn't an official image for noble yet, let's use the community one
-    REMOTE=ubuntu
-    # There isn't an official image for noble yet, let's use the daily one
-    if os.query is-ubuntu 24.04; then
-        REMOTE=ubuntu-daily
-    fi
-    VERSION_ID="$(. /etc/os-release && echo "$VERSION_ID" )"
-    lxd.lxc launch --quiet "$REMOTE:$VERSION_ID" my-ubuntu
-    lxc launch --quiet "$REMOTE:$VERSION_ID" my-nesting-ubuntu -c security.nesting=true
+    "$TESTSTOOLS"/lxd-state launch my-ubuntu
+    "$TESTSTOOLS"/lxd-state launch my-nesting-ubuntu -c security.nesting=true
 
     if os.query is-pc-amd64 && lxd.lxc info my-ubuntu | grep "Architecture: i686"; then
         echo "LXD spawned 32bit userspace container on a 64bit host, WAT?"
@@ -114,14 +106,6 @@ execute: |
         echo "Push snapd into container"
         lxd.lxc file push --quiet prep-snapd-in-lxd.sh "$cont_name/root/"
         lxd.lxc file push --quiet "$GOHOME"/snapd_*.deb "$cont_name/root/"
-
-        echo "Setting up proxy *inside* the container"
-        if [ -n "${http_proxy:-}" ]; then
-            lxd.lxc exec $cont_name -- sh -c "echo http_proxy=$http_proxy >> /etc/environment"
-        fi
-        if [ -n "${https_proxy:-}" ]; then
-            lxd.lxc exec $cont_name -- sh -c "echo https_proxy=$https_proxy >> /etc/environment"
-        fi
 
         echo "Install snapd in container"
         lxd.lxc exec $cont_name -- /root/prep-snapd-in-lxd.sh
@@ -167,6 +151,14 @@ execute: |
     lxd.lxc exec my-nesting-ubuntu -- snap set lxd waitready.timeout=240
     lxd.lxc exec my-nesting-ubuntu -- lxd waitready
     lxd.lxc exec my-nesting-ubuntu -- lxd init --auto
+
+    # There isn't an official image for noble yet, let's use the community one
+    REMOTE=ubuntu
+    # There isn't an official image for noble yet, let's use the daily one
+    if os.query is-ubuntu 24.04; then
+        REMOTE=ubuntu-daily
+    fi
+    VERSION_ID="$(. /etc/os-release && echo "$VERSION_ID" )"
 
     lxd.lxc exec my-nesting-ubuntu -- lxd.lxc launch --quiet "$REMOTE:$VERSION_ID" my-inner-ubuntu
     lxd.lxc exec my-nesting-ubuntu -- lxd.lxc exec my-inner-ubuntu -- echo "from-the-INSIDE-inside" | MATCH from-the-INSIDE-inside

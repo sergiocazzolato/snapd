@@ -4,14 +4,7 @@ systems: [ubuntu-18.04-64] # tight coupling with container guest
 
 prepare: |
     "$TESTSTOOLS"/lxd-state prepare-snap
-    lxc launch --quiet "ubuntu:18.04" bionic
-    echo "Setting up proxy *inside* the container"
-    if [ -n "${http_proxy:-}" ]; then
-        lxd.lxc exec bionic -- sh -c "echo http_proxy=$http_proxy >> /etc/environment"
-    fi
-    if [ -n "${https_proxy:-}" ]; then
-        lxd.lxc exec bionic -- sh -c "echo https_proxy=$https_proxy >> /etc/environment"
-    fi
+    "$TESTSTOOLS"/lxd-state launch bionic
 
     lxc exec bionic -- apt autoremove --purge -y snapd ubuntu-core-launcher
     lxc exec bionic -- apt update
