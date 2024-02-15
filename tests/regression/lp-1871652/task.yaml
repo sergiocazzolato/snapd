@@ -7,6 +7,14 @@ prepare: |
     "$TESTSTOOLS"/lxd-state prepare-snap
 
     lxc launch ubuntu:18.04 bionic
+    echo "Setting up proxy *inside* the container"
+    if [ -n "${http_proxy:-}" ]; then
+        lxd.lxc exec bionic -- sh -c "echo http_proxy=$http_proxy >> /etc/environment"
+    fi
+    if [ -n "${https_proxy:-}" ]; then
+        lxd.lxc exec bionic -- sh -c "echo https_proxy=$https_proxy >> /etc/environment"
+    fi
+
     # Install snapd inside the container and then install the core snap so that
     # we get re-execution logic to applies as snapd in the store is more recent
     # than snapd in the archive.
