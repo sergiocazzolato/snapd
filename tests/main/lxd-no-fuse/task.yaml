@@ -14,7 +14,7 @@ execute: |
 
     echo "Install lxd"
     "$TESTSTOOLS"/lxd-state prepare-snap
-    "$TESTSTOOLS"/lxd-state launch ubuntu
+    "$TESTSTOOLS"/lxd-state launch my-ubuntu
 
     if os.query is-pc-amd64 && lxd.lxc info my-ubuntu | grep "Architecture: i686"; then
         echo "LXD spawned 32bit userspace container on a 64bit host, WAT?"
