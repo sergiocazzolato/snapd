@@ -13,6 +13,7 @@ environment:
     USE_SNAPD_DEB/without_snapddeb: no
     http_proxy: $HTTP_PROXY
     https_proxy: $HTTPS_PROXY
+    no_proxy: cdimage.ubuntu.com
 
 prepare: |
   # FIXME: The gadget snap for classic is not yet available. So for
