@@ -670,9 +670,15 @@ repack: |
     # obtained directly from GitHub. There's nothing special about that reference,
     # other than it will often be in the local repository's history already.
     # The more recent the reference, the smaller the delta.
-    if ! echo "$SPREAD_BACKENDS" | grep -e linode -e google; then
+    if ! echo "$SPREAD_BACKEND" | grep -e linode -e google; then
         cat <&3 >&4
     elif ! git show-ref "$DELTA_REF" > /dev/null; then
+        cat <&3 >&4
+    elif ! command -v xdelta3 > /dev/null; then
+        # xdelta3 command is not locally installed
+        cat <&3 >&4
+    elif ! echo "$SPREAD_SYSTEM" | grep -e amazon-linux-2023-64; then
+        # xdelta3 command is not available in al2023
         cat <&3 >&4
     elif [ -n "${NO_DELTA-}" ]; then
         # delta has been disabled by the caller
