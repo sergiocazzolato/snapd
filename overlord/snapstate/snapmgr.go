@@ -260,7 +260,9 @@ type SnapState struct {
 	// aliases, see aliasesv2.go
 	Aliases             map[string]*AliasTarget `json:"aliases,omitempty"`
 	AutoAliasesDisabled bool                    `json:"auto-aliases-disabled,omitempty"`
-	AliasesPending      bool                    `json:"aliases-pending,omitempty"`
+	// AliasesPending when true indicates that aliases in internal state
+	// and on disk might not match.
+	AliasesPending bool `json:"aliases-pending,omitempty"`
 
 	// UserID of the user requesting the install
 	UserID int `json:"user-id,omitempty"`
@@ -529,6 +531,22 @@ func (snapst *SnapState) InstanceName() string {
 	return snap.InstanceName(cur.RealName, snapst.InstanceKey)
 }
 
+// RefreshInhibitProceedTime is the time after which a pending refresh is forced
+// for a running snap in the next auto-refresh. Zero time indicates that there
+// are no pending refreshes.
+//
+// The provided state must be locked by the caller.
+func (snapst *SnapState) RefreshInhibitProceedTime(st *state.State) time.Time {
+	if snapst.RefreshInhibitedTime == nil {
+		// Zero time, no pending refreshes.
+		return time.Time{}
+	}
+	// TODO: state is needed for when configurable max inhibition
+	// is introduced (i.e. "core.refresh.max-inhibition-days").
+	proceedTime := snapst.RefreshInhibitedTime.Add(maxInhibition)
+	return proceedTime
+}
+
 func revisionInSequence(snapst *SnapState, needle snap.Revision) bool {
 	for _, si := range snapst.Sequence.SideInfos() {
 		if si.Revision == needle {
@@ -622,6 +640,10 @@ func Manager(st *state.State, runner *state.TaskRunner) (*SnapManager, error) {
 	runner.AddHandler("check-rerefresh", m.doCheckReRefresh, nil)
 	runner.AddHandler("conditional-auto-refresh", m.doConditionalAutoRefresh, nil)
 
+	// specific set-up for the kernel snap
+	runner.AddHandler("setup-kernel-snap", m.doSetupKernelSnap, m.undoSetupKernelSnap)
+	runner.AddHandler("remove-old-kernel-snap-setup", m.doCleanupOldKernelSnap, m.undoCleanupOldKernelSnap)
+
 	// FIXME: drop the task entirely after a while
 	// (having this wart here avoids yet-another-patch)
 	runner.AddHandler("cleanup", func(*state.Task, *tomb.Tomb) error { return nil }, nil)
@@ -636,10 +658,10 @@ func Manager(st *state.State, runner *state.TaskRunner) (*SnapManager, error) {
 	// FIXME: drop the task entirely after a while
 	runner.AddHandler("clear-aliases", func(*state.Task, *tomb.Tomb) error { return nil }, nil)
 	runner.AddHandler("set-auto-aliases", m.doSetAutoAliases, m.undoRefreshAliases)
-	runner.AddHandler("setup-aliases", m.doSetupAliases, m.doRemoveAliases)
+	runner.AddHandler("setup-aliases", m.doSetupAliases, m.undoSetupAliases)
 	runner.AddHandler("refresh-aliases", m.doRefreshAliases, m.undoRefreshAliases)
 	runner.AddHandler("prune-auto-aliases", m.doPruneAutoAliases, m.undoRefreshAliases)
-	runner.AddHandler("remove-aliases", m.doRemoveAliases, m.doSetupAliases)
+	runner.AddHandler("remove-aliases", m.doRemoveAliases, m.undoRemoveAliases)
 	runner.AddHandler("alias", m.doAlias, m.undoRefreshAliases)
 	runner.AddHandler("unalias", m.doUnalias, m.undoRefreshAliases)
 	runner.AddHandler("disable-aliases", m.doDisableAliases, m.undoRefreshAliases)
@@ -962,9 +984,23 @@ func (m *SnapManager) ensureSnapdSnapTransition() error {
 		return nil
 	}
 
+	// Wait for the system to be seeded before transtioning
+	var seeded bool
+	err := m.state.Get("seeded", &seeded)
+	if err != nil {
+		if !errors.Is(err, state.ErrNoState) {
+			// already seeded or other error
+			return err
+		}
+		return nil
+	}
+	if !seeded {
+		return nil
+	}
+
 	// check if snapd snap is installed
 	var snapst SnapState
-	err := Get(m.state, "snapd", &snapst)
+	err = Get(m.state, "snapd", &snapst)
 	if err != nil && !errors.Is(err, state.ErrNoState) {
 		return err
 	}
@@ -1056,6 +1092,20 @@ func (m *SnapManager) ensureUbuntuCoreTransition() error {
 	}
 	if err != nil && !errors.Is(err, state.ErrNoState) {
 		return err
+	}
+
+	// Wait for the system to be seeded before transtioning
+	var seeded bool
+	err = m.state.Get("seeded", &seeded)
+	if err != nil {
+		if !errors.Is(err, state.ErrNoState) {
+			// already seeded or other error
+			return err
+		}
+		return nil
+	}
+	if !seeded {
+		return nil
 	}
 
 	// check that there is no change in flight already, this is a

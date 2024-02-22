@@ -1,5 +1,10 @@
 summary: Check snapfuse works
 
+details: |
+    This test validates snaps can be installed and removed in lxd container
+    by regular users and by root. Also checks snapfuse is running in the
+    lxd container and lzo compressed snaps can be used normally
+
 # we just need a single system to verify this
 systems: [ubuntu-22.04-64]
 
@@ -18,6 +23,8 @@ execute: |
     echo "Install lxd"
     "$TESTSTOOLS"/lxd-state prepare-snap
     "$TESTSTOOLS"/lxd-state launch my-ubuntu
+    VERSION_ID="$(. /etc/os-release && echo "$VERSION_ID" )"
+    lxd.lxc launch --quiet "$REMOTE:$VERSION_ID" my-ubuntu
 
     if os.query is-pc-amd64 && lxd.lxc info my-ubuntu | grep "Architecture: i686"; then
         echo "LXD spawned 32bit userspace container on a 64bit host, WAT?"

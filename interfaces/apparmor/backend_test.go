@@ -292,7 +292,7 @@ func (s *backendSuite) TestInstallingDevmodeSnapNeitherSnapdNorCoreSnapInstalled
 	devMode := interfaces.ConfinementOptions{DevMode: true}
 	c.Assert(func() {
 		s.InstallSnap(c, devMode, "", ifacetest.SambaYamlV1, 1)
-	}, PanicMatches, "neither snapd nor core snap available while preparing apparmor profile for devmode snap samba, panicing to restart snapd to continue seeding")
+	}, PanicMatches, "neither snapd nor core snap available while preparing apparmor profile for devmode snap samba, panicking to restart snapd to continue seeding")
 }
 
 func (s *backendSuite) TestInstallingSnapWritesAndLoadsProfiles(c *C) {
@@ -1097,6 +1097,12 @@ func (s *backendSuite) TestUnconfinedFlag(c *C) {
 		"}\n")
 	defer restoreClassicTemplate()
 	s.Iface.InterfaceStaticInfo.AppArmorUnconfinedSlots = true
+	// will only be enabled if the interface also enables unconfined
+	s.Iface.AppArmorPermanentSlotCallback = func(spec *apparmor.Specification, slot *snap.SlotInfo) error {
+		err := spec.SetUnconfinedEnabled()
+		c.Assert(err, IsNil)
+		return nil
+	}
 	// test both classic and non-classic confinement
 	options := []interfaces.ConfinementOptions{
 		{},
@@ -1113,7 +1119,6 @@ func (s *backendSuite) TestUnconfinedFlag(c *C) {
 		flags := []string{"attach_disconnected", "mediate_deleted", "unconfined"}
 		prefix := commonPrefix
 		if opts.Classic {
-			flags = append(flags, "complain")
 			prefix = "\n#classic" + commonPrefix
 		}
 		contents := fmt.Sprintf(prefix+"\nprofile \"snap.samba.smbd\" flags=(%s) {\n\n}\n",

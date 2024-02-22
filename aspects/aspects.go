@@ -128,7 +128,37 @@ type DataBag interface {
 // be committed.
 type Schema interface {
 	Validate(data []byte) error
+
+	// SchemaAt returns the schemas (e.g., string, int, etc) that may be at the
+	// provided path. If the path cannot be followed, an error is returned.
+	SchemaAt(path []string) ([]Schema, error)
+
+	// Type returns the SchemaType corresponding to the Schema.
+	Type() SchemaType
 }
+
+type SchemaType uint
+
+func (v SchemaType) String() string {
+	if int(v) >= len(typeStrings) {
+		panic("unknown schema type")
+	}
+
+	return typeStrings[v]
+}
+
+const (
+	Int SchemaType = iota
+	Number
+	String
+	Bool
+	Map
+	Array
+	Any
+	Alt
+)
+
+var typeStrings = [...]string{"int", "number", "string", "bool", "map", "array", "any", "alt"}
 
 // Bundle holds a series of related aspects.
 type Bundle struct {
@@ -138,9 +168,8 @@ type Bundle struct {
 	aspects map[string]*Aspect
 }
 
-// NewAspectBundle returns a new aspect bundle for the specified aspects
-// and access patterns.
-func NewAspectBundle(account string, bundleName string, aspects map[string]interface{}, schema Schema) (*Bundle, error) {
+// NewBundle returns a new aspect bundle with the specified aspects and their rules.
+func NewBundle(account string, bundleName string, aspects map[string]interface{}, schema Schema) (*Bundle, error) {
 	if len(aspects) == 0 {
 		return nil, errors.New(`cannot define aspects bundle: no aspects`)
 	}
@@ -153,14 +182,17 @@ func NewAspectBundle(account string, bundleName string, aspects map[string]inter
 	}
 
 	for name, v := range aspects {
-		accessPatterns, ok := v.([]map[string]string)
-		if !ok {
-			return nil, fmt.Errorf("cannot define aspect %q: access patterns should be a list of maps", name)
-		} else if len(accessPatterns) == 0 {
-			return nil, fmt.Errorf("cannot define aspect %q: no access patterns found", name)
+		aspectMap, ok := v.(map[string]interface{})
+		if !ok || len(aspectMap) == 0 {
+			return nil, fmt.Errorf("cannot define aspect %q: aspect must be non-empty map", name)
 		}
 
-		aspect, err := newAspect(aspectBundle, name, accessPatterns)
+		rules, ok := aspectMap["rules"].([]interface{})
+		if !ok || len(rules) == 0 {
+			return nil, fmt.Errorf("cannot define aspect %q: aspect rules must be non-empty list", name)
+		}
+
+		aspect, err := newAspect(aspectBundle, name, rules)
 		if err != nil {
 			return nil, fmt.Errorf("cannot define aspect %q: %w", name, err)
 		}
@@ -171,30 +203,54 @@ func NewAspectBundle(account string, bundleName string, aspects map[string]inter
 	return aspectBundle, nil
 }
 
-func newAspect(bundle *Bundle, name string, aspectPatterns []map[string]string) (*Aspect, error) {
+func newAspect(bundle *Bundle, name string, aspectRules []interface{}) (*Aspect, error) {
 	aspect := &Aspect{
-		Name:           name,
-		accessPatterns: make([]*accessPattern, 0, len(aspectPatterns)),
-		bundle:         bundle,
+		Name:        name,
+		aspectRules: make([]*aspectRule, 0, len(aspectRules)),
+		bundle:      bundle,
 	}
 
 	readRequests := make(map[string]bool)
-	for _, aspectPattern := range aspectPatterns {
-		request, ok := aspectPattern["request"]
-		if !ok || request == "" {
-			return nil, errors.New(`access patterns must have a "request" field`)
+	for _, ruleRaw := range aspectRules {
+		aspectRule, ok := ruleRaw.(map[string]interface{})
+		if !ok {
+			return nil, errors.New("each aspect rule should be a map")
 		}
 
-		storage, ok := aspectPattern["storage"]
-		if !ok || storage == "" {
-			return nil, errors.New(`access patterns must have a "storage" field`)
+		requestRaw, ok := aspectRule["request"]
+		if !ok || requestRaw == "" {
+			return nil, errors.New(`aspect rules must have a "request" field`)
+		}
+
+		request, ok := requestRaw.(string)
+		if !ok {
+			return nil, errors.New(`"request" must be a string`)
+		}
+
+		storageRaw, ok := aspectRule["storage"]
+		if !ok || storageRaw == "" {
+			return nil, errors.New(`aspect rules must have a "storage" field`)
+		}
+
+		storage, ok := storageRaw.(string)
+		if !ok {
+			return nil, errors.New(`"storage" must be a string`)
 		}
 
 		if err := validateRequestStoragePair(request, storage); err != nil {
 			return nil, err
 		}
 
-		switch aspectPattern["access"] {
+		accessRaw, ok := aspectRule["access"]
+		var access string
+		if ok {
+			access, ok = accessRaw.(string)
+			if !ok {
+				return nil, errors.New(`"access" must be a string`)
+			}
+		}
+
+		switch access {
 		case "read", "read-write", "":
 			if readRequests[request] {
 				return nil, fmt.Errorf(`cannot have several reading rules with the same "request" field`)
@@ -202,12 +258,12 @@ func newAspect(bundle *Bundle, name string, aspectPatterns []map[string]string) 
 			readRequests[request] = true
 		}
 
-		accPattern, err := newAccessPattern(request, storage, aspectPattern["access"])
+		rule, err := newAspectRule(request, storage, access)
 		if err != nil {
 			return nil, err
 		}
 
-		aspect.accessPatterns = append(aspect.accessPatterns, accPattern)
+		aspect.aspectRules = append(aspect.aspectRules, rule)
 	}
 
 	return aspect, nil
@@ -303,11 +359,23 @@ func (d *Bundle) Aspect(aspect string) *Aspect {
 	return d.aspects[aspect]
 }
 
-// Aspect is a group of access patterns under a bundle.
+// Aspect carries access rules for a particular aspect in a bundle.
 type Aspect struct {
-	Name           string
-	accessPatterns []*accessPattern
-	bundle         *Bundle
+	Name        string
+	aspectRules []*aspectRule
+	bundle      *Bundle
+}
+
+type expandedMatch struct {
+	// storagePath is dot-separated storage path without unfilled placeholders.
+	storagePath string
+
+	// request is the original request field that the request was matched with.
+	request string
+
+	// value is the nested value obtained after removing the original values' outer
+	// layers that correspond to the unmatched suffix.
+	value interface{}
 }
 
 // Set sets the named aspect to a specified value.
@@ -318,29 +386,36 @@ func (a *Aspect) Set(databag DataBag, request string, value interface{}) error {
 
 	var matches []requestMatch
 	subkeys := strings.Split(request, ".")
-	for _, accessPatt := range a.accessPatterns {
-		placeholders, suffixParts, ok := accessPatt.match(subkeys)
+	for _, rule := range a.aspectRules {
+		placeholders, suffixParts, ok := rule.match(subkeys)
 		if !ok {
 			continue
 		}
 
-		for _, part := range suffixParts {
-			// TODO: add support for setting with unmatched placeholders
-			if isPlaceholder(part) {
-				return badRequestErrorFrom(a, "set", request, "cannot set with unmatched placeholders")
-			}
-		}
-
-		if !accessPatt.isWriteable() {
+		if !rule.isWriteable() {
 			continue
 		}
 
-		path, err := accessPatt.storagePath(placeholders)
+		path, err := rule.storagePath(placeholders)
 		if err != nil {
 			return err
 		}
 
-		matches = append(matches, requestMatch{storagePath: path, suffixParts: suffixParts})
+		if value == nil {
+			// TODO: in the future, check the storage and complete paths according to
+			// the data that is currently stored?
+			for _, part := range strings.Split(path, ".") {
+				if isPlaceholder(part) {
+					return badRequestErrorFrom(a, "set", request, "cannot unset with unmatched placeholders")
+				}
+			}
+		}
+
+		matches = append(matches, requestMatch{
+			storagePath: path,
+			suffixParts: suffixParts,
+			request:     rule.originalRequest,
+		})
 	}
 
 	if len(matches) == 0 {
@@ -352,22 +427,41 @@ func (a *Aspect) Set(databag DataBag, request string, value interface{}) error {
 		return matches[x].storagePath < matches[y].storagePath
 	})
 
+	var expandedMatches []expandedMatch
+	suffixes := make(map[string]struct{}, len(matches))
 	for _, match := range matches {
-		nestedValue := value
-
-		for _, part := range match.suffixParts {
-			mapVal, ok := nestedValue.(map[string]interface{})
-			if !ok {
-				return badRequestErrorFrom(a, "set", request, `expected map for unmatched request parts but got %T`, nestedValue)
-			}
-
-			nestedValue, ok = mapVal[part]
-			if !ok {
-				return badRequestErrorFrom(a, "set", request, `cannot find nested value with unmatched key %q`, part)
-			}
+		pathsToValues, err := getValuesThroughPaths(match.storagePath, match.suffixParts, value)
+		if err != nil {
+			return badRequestErrorFrom(a, "set", request, err.Error())
 		}
 
-		if err := databag.Set(match.storagePath, nestedValue); err != nil {
+		for path, val := range pathsToValues {
+			expandedMatches = append(expandedMatches, expandedMatch{
+				storagePath: path,
+				request:     match.request,
+				value:       val,
+			})
+		}
+
+		// store the suffix in a map so we deduplicate them before checking if the
+		// value is used in its entirety
+		suffixes[strings.Join(match.suffixParts, ".")] = struct{}{}
+	}
+
+	// check if value is entirely used. If not, we fail so this is consistent
+	// with doing the same write individually (one branch at a time)
+	if err := checkForUnusedBranches(value, suffixes); err != nil {
+		return badRequestErrorFrom(a, "set", request, err.Error())
+	}
+
+	if value != nil {
+		if err := checkSchemaMismatch(a.bundle.schema, expandedMatches); err != nil {
+			return err
+		}
+	}
+
+	for _, match := range expandedMatches {
+		if err := databag.Set(match.storagePath, match.value); err != nil {
 			return err
 		}
 
@@ -382,6 +476,277 @@ func (a *Aspect) Set(databag DataBag, request string, value interface{}) error {
 	}
 
 	return nil
+}
+
+func checkSchemaMismatch(schema Schema, matches []expandedMatch) error {
+	pathTypes := make(map[string][]SchemaType)
+out:
+	for _, match := range matches {
+		path := match.storagePath
+		pathParts := strings.Split(path, ".")
+		schemas, err := schema.SchemaAt(pathParts)
+		if err != nil {
+			var serr *schemaAtError
+			if errors.As(err, &serr) {
+				parts := strings.Split(path, ".")
+				subParts := parts[:len(parts)-serr.left]
+				subPath := strings.Join(subParts, ".")
+
+				return fmt.Errorf(`path %q for request %q is invalid after %q: %w`,
+					path, match.request, subPath, serr.err)
+			}
+
+			return fmt.Errorf(`internal error: unexpected error finding schema at %q: %w`, path, err)
+		}
+
+		var newTypes []SchemaType
+		for _, schema := range schemas {
+			switch t := schema.Type(); t {
+			case Any:
+				// schema accepts "any" so it's never incompatible w/ other paths
+				continue out
+			case Alt:
+				// shouldn't happen except for programmer error because alternatives'
+				// SchemaAt should return the composing schemas, not itself
+				return fmt.Errorf(`internal error: unexpected Alt schema type along path`)
+			default:
+				newTypes = append(newTypes, t)
+			}
+
+		}
+
+		for oldPath, oldTypes := range pathTypes {
+			var pathMatch bool
+		pathMatching:
+			for _, newType := range newTypes {
+				// find a pair of types in the two paths that can accept the same data
+				for _, oldType := range oldTypes {
+					if newType == oldType || (newType == Number && oldType == Int) || (newType == Int && oldType == Number) {
+						// accept two different types of number since an int could apply to both
+						pathMatch = true
+						break pathMatching
+					}
+				}
+			}
+
+			if !pathMatch {
+				oldSetStr, newSetStr := schemaTypesStr(oldTypes), schemaTypesStr(newTypes)
+				return fmt.Errorf(`storage paths %q and %q for request %q require incompatible types: %s != %s`,
+					oldPath, path, match.request, oldSetStr, newSetStr)
+			}
+		}
+
+		pathTypes[path] = newTypes
+	}
+
+	return nil
+}
+
+func schemaTypesStr(types []SchemaType) string {
+	if len(types) == 1 {
+		return types[0].String()
+	}
+
+	var sb strings.Builder
+	sb.WriteRune('[')
+	for i, typ := range types {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(typ.String())
+	}
+	sb.WriteRune(']')
+
+	return sb.String()
+}
+
+// getValuesThroughPaths takes a match's storage path and unmatched request
+// suffix and strips the outer layers of the value to be set so it can be used
+// at the storage path. Parts of the suffix that are placeholders will be
+// expanded based on what keys exist in the value at that point and the mapping
+// will be used to complete the storage path.
+var getValuesThroughPaths = getValuesThroughPathsImpl
+
+func getValuesThroughPathsImpl(storagePath string, reqSuffixParts []string, val interface{}) (map[string]interface{}, error) {
+	// use the non-placeholder parts of the suffix to find the value to write
+	var placeIndex int
+	for _, part := range reqSuffixParts {
+		if isPlaceholder(part) {
+			// there is a placeholder, we have to consider potentially many candidates
+			break
+		}
+
+		mapVal, ok := val.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf(`expected map for unmatched request parts but got %T`, val)
+		}
+
+		val, ok = mapVal[part]
+		if !ok {
+			return nil, fmt.Errorf(`cannot use unmatched part %q as key in %v`, part, mapVal)
+		}
+
+		placeIndex++
+	}
+
+	// we reached the end of the suffix (there are no unmatched placeholders) so
+	// we have the full storage path and final value
+	if placeIndex == len(reqSuffixParts) {
+		return map[string]interface{}{storagePath: val}, nil
+	}
+
+	mapVal, ok := val.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf(`expected map for unmatched request parts but got %T`, val)
+	}
+
+	storagePathsToValues := make(map[string]interface{})
+	// suffix has an unmatched placeholder, try all possible values to fill it and
+	// find the corresponding nested value.
+	for cand, candVal := range mapVal {
+		newStoragePath := replaceIn(storagePath, reqSuffixParts[placeIndex], cand)
+		pathsToValues, err := getValuesThroughPathsImpl(newStoragePath, reqSuffixParts[placeIndex+1:], candVal)
+		if err != nil {
+			return nil, err
+		}
+
+		for path, val := range pathsToValues {
+			storagePathsToValues[path] = val
+		}
+	}
+
+	return storagePathsToValues, nil
+}
+
+func replaceIn(path, key, value string) string {
+	parts := strings.Split(path, ".")
+	for i, part := range parts {
+		if part == key {
+			parts[i] = value
+		}
+	}
+
+	return strings.Join(parts, ".")
+}
+
+// checkForUnusedBranches checks that the value is entirely covered by the paths.
+func checkForUnusedBranches(value interface{}, paths map[string]struct{}) error {
+	// prune each path from the value. If anything is left at the end, the paths
+	// don't collectively cover the entire value
+	copyValue := deepCopy(value)
+	for path := range paths {
+		var err error
+		var pathParts []string
+		if path != "" {
+			pathParts = strings.Split(path, ".")
+		}
+
+		copyValue, err = prunePathInValue(pathParts, copyValue)
+		if err != nil {
+			return err
+		}
+	}
+
+	// after pruning each path the value is nil, so all of it is used
+	if copyValue == nil {
+		return nil
+	}
+
+	var parts []string
+	for copyValue != nil {
+		mapVal, ok := copyValue.(map[string]interface{})
+		if !ok {
+			break
+		}
+
+		for k, v := range mapVal {
+			parts = append(parts, k)
+			copyValue = v
+			break
+		}
+	}
+
+	return fmt.Errorf("value contains unused data under %q", strings.Join(parts, "."))
+}
+
+// deepCopy returns a deep copy of the value. Only supports the types that the
+// API can take (so maps, slices and primitive types).
+func deepCopy(value interface{}) interface{} {
+	switch typeVal := value.(type) {
+	case map[string]interface{}:
+		mapCopy := make(map[string]interface{}, len(typeVal))
+		for k, v := range typeVal {
+			mapCopy[k] = deepCopy(v)
+		}
+		return mapCopy
+
+	case []interface{}:
+		sliceCopy := make([]interface{}, 0, len(typeVal))
+		for _, v := range typeVal {
+			sliceCopy = append(sliceCopy, deepCopy(v))
+		}
+		return sliceCopy
+
+	default:
+		return value
+	}
+}
+
+func prunePathInValue(parts []string, val interface{}) (interface{}, error) {
+	if len(parts) == 0 {
+		return nil, nil
+	} else if val == nil {
+		return nil, nil
+	}
+
+	mapVal, ok := val.(map[string]interface{})
+	if !ok {
+		// shouldn't happen since we already checked this
+		return nil, fmt.Errorf(`expected map but got %T`, val)
+	}
+
+	if isPlaceholder(parts[0]) {
+		nested := make(map[string]interface{})
+		for k, v := range mapVal {
+			newVal, err := prunePathInValue(parts[1:], v)
+			if err != nil {
+				return nil, err
+			}
+
+			if newVal != nil {
+				nested[k] = newVal
+			}
+		}
+
+		if len(nested) == 0 {
+			return nil, nil
+		}
+
+		return nested, nil
+	}
+
+	nested, ok := mapVal[parts[0]]
+	if !ok {
+		// shouldn't happen since we already checked this
+		return nil, fmt.Errorf(`cannot use unmatched part %q as key in %v`, parts[0], nested)
+	}
+
+	newValue, err := prunePathInValue(parts[1:], nested)
+	if err != nil {
+		return nil, err
+	}
+
+	if newValue == nil {
+		delete(mapVal, parts[0])
+	} else {
+		mapVal[parts[0]] = newValue
+	}
+
+	if len(mapVal) == 0 {
+		return nil, nil
+	}
+
+	return mapVal, nil
 }
 
 // namespaceResult creates a nested namespace around the result that corresponds
@@ -424,7 +789,7 @@ func namespaceResult(res interface{}, suffixParts []string) (interface{}, error)
 
 // Get returns the aspect value identified by the request. If either the named
 // aspect or the corresponding value can't be found, a NotFoundError is returned.
-func (a *Aspect) Get(databag DataBag, request string) (map[string]interface{}, error) {
+func (a *Aspect) Get(databag DataBag, request string) (interface{}, error) {
 	if err := validateAspectDottedPath(request, nil); err != nil {
 		return nil, badRequestErrorFrom(a, "get", request, err.Error())
 	}
@@ -461,8 +826,7 @@ func (a *Aspect) Get(databag DataBag, request string) (map[string]interface{}, e
 		return nil, notFoundErrorFrom(a, "get", request, "matching rules don't map to any values")
 	}
 
-	// the top level maps the request to the remaining namespace
-	return map[string]interface{}{request: merged}, nil
+	return merged, nil
 }
 
 func mergeNamespaces(old, new interface{}) (interface{}, error) {
@@ -505,6 +869,9 @@ type requestMatch struct {
 	// suffixParts contains the nested suffix of the entry's request that wasn't
 	// matched by the request.
 	suffixParts []string
+
+	// request is the full request as it appears in the assertion's access rule.
+	request string
 }
 
 // matchGetRequest either returns the first exact match for the request or, if
@@ -512,22 +879,26 @@ type requestMatch struct {
 // prefix of. If no match is found, a NotFoundError is returned.
 func (a *Aspect) matchGetRequest(request string) (matches []requestMatch, err error) {
 	subkeys := strings.Split(request, ".")
-	for _, accessPatt := range a.accessPatterns {
-		placeholders, restSuffix, ok := accessPatt.match(subkeys)
+	for _, rule := range a.aspectRules {
+		placeholders, restSuffix, ok := rule.match(subkeys)
 		if !ok {
 			continue
 		}
 
-		path, err := accessPatt.storagePath(placeholders)
+		path, err := rule.storagePath(placeholders)
 		if err != nil {
 			return nil, err
 		}
 
-		if !accessPatt.isReadable() {
+		if !rule.isReadable() {
 			continue
 		}
 
-		m := requestMatch{storagePath: path, suffixParts: restSuffix}
+		m := requestMatch{
+			storagePath: path,
+			suffixParts: restSuffix,
+			request:     rule.originalRequest,
+		}
 		matches = append(matches, m)
 	}
 
@@ -554,10 +925,10 @@ func (a *Aspect) matchGetRequest(request string) (matches []requestMatch, err er
 	return matches, nil
 }
 
-func newAccessPattern(request, storage, accesstype string) (*accessPattern, error) {
+func newAspectRule(request, storage, accesstype string) (*aspectRule, error) {
 	accType, err := newAccessType(accesstype)
 	if err != nil {
-		return nil, fmt.Errorf("cannot create aspect pattern: %w", err)
+		return nil, fmt.Errorf("cannot create aspect rule: %w", err)
 	}
 
 	requestSubkeys := strings.Split(request, ".")
@@ -586,7 +957,7 @@ func newAccessPattern(request, storage, accesstype string) (*accessPattern, erro
 		pathWriters = append(pathWriters, patt)
 	}
 
-	return &accessPattern{
+	return &aspectRule{
 		originalRequest: request,
 		request:         requestMatchers,
 		storage:         pathWriters,
@@ -598,10 +969,10 @@ func isPlaceholder(part string) bool {
 	return part[0] == '{' && part[len(part)-1] == '}'
 }
 
-// accessPattern represents an individual aspect access pattern. It can be used
-// to match a request and map it into a corresponding storage, potentially with
+// aspectRule represents an individual aspect rule. It can be used to match a
+// request and map it into a corresponding storage path, potentially with
 // placeholders filled in.
-type accessPattern struct {
+type aspectRule struct {
 	originalRequest string
 	request         []requestMatcher
 	storage         []storageWriter
@@ -611,7 +982,7 @@ type accessPattern struct {
 // match returns true if the subkeys match the pattern exactly or as a prefix.
 // If placeholders are "filled in" when matching, those are returned in a map.
 // If the subkeys match as a prefix, the remaining suffix is returned.
-func (p *accessPattern) match(reqSubkeys []string) (placeholders map[string]string, restSuffix []string, match bool) {
+func (p *aspectRule) match(reqSubkeys []string) (placeholders map[string]string, restSuffix []string, match bool) {
 	if len(p.request) < len(reqSubkeys) {
 		return nil, nil, false
 	}
@@ -632,7 +1003,7 @@ func (p *accessPattern) match(reqSubkeys []string) (placeholders map[string]stri
 
 // storagePath takes a map of placeholders to their values in the aspect name and
 // returns the path with its placeholder values filled in with the map's values.
-func (p *accessPattern) storagePath(placeholders map[string]string) (string, error) {
+func (p *aspectRule) storagePath(placeholders map[string]string) (string, error) {
 	sb := &strings.Builder{}
 
 	for _, subkey := range p.storage {
@@ -651,11 +1022,11 @@ func (p *accessPattern) storagePath(placeholders map[string]string) (string, err
 	return sb.String(), nil
 }
 
-func (p accessPattern) isReadable() bool {
+func (p aspectRule) isReadable() bool {
 	return p.access == readWrite || p.access == read
 }
 
-func (p accessPattern) isWriteable() bool {
+func (p aspectRule) isWriteable() bool {
 	return p.access == readWrite || p.access == write
 }
 
@@ -979,4 +1350,13 @@ func (s JSONSchema) Validate(jsonData []byte) error {
 	// the top-level is always an object
 	var data map[string]json.RawMessage
 	return json.Unmarshal(jsonData, &data)
+}
+
+// SchemaAt always returns the JSONSchema.
+func (v JSONSchema) SchemaAt(path []string) ([]Schema, error) {
+	return []Schema{v}, nil
+}
+
+func (v JSONSchema) Type() SchemaType {
+	return Any
 }
