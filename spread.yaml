@@ -295,6 +295,7 @@ backends:
                   workers: 8
 
     openstack:
+        key: '$(HOST: echo "$SPREAD_OPENSTACK_ENV")'
         plan: staging-cpu2-ram4-disk20
         halt-timeout: 2h
         groups: [default]
