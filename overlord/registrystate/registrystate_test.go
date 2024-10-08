@@ -67,6 +67,17 @@ func (s *registryTestSuite) SetUpTest(c *C) {
 	s.state.Lock()
 	defer s.state.Unlock()
 
+	runner := s.o.TaskRunner()
+	s.o.AddManager(runner)
+
+	hookMgr, err := hookstate.Manager(s.state, runner)
+	c.Assert(err, IsNil)
+	s.o.AddManager(hookMgr)
+
+	// to test the registryManager
+	mgr := registrystate.Manager(s.state, hookMgr, runner)
+	s.o.AddManager(mgr)
+
 	storeSigning := assertstest.NewStoreStack("can0nical", nil)
 	db, err := asserts.OpenDatabase(&asserts.DatabaseConfig{
 		Backstore: asserts.NewMemoryBackstore(),
@@ -144,7 +155,7 @@ func (s *registryTestSuite) TestGetView(c *C) {
 	c.Assert(err, IsNil)
 	s.state.Set("registry-databags", map[string]map[string]registry.JSONDataBag{s.devAccID: {"network": databag}})
 
-	res, err := registrystate.GetViaView(s.state, s.devAccID, "network", "setup-wifi", []string{"ssid"})
+	res, err := registrystate.Get(s.state, s.devAccID, "network", "setup-wifi", []string{"ssid"})
 	c.Assert(err, IsNil)
 	c.Assert(res, DeepEquals, map[string]interface{}{"ssid": "foo"})
 }
@@ -153,17 +164,17 @@ func (s *registryTestSuite) TestGetNotFound(c *C) {
 	s.state.Lock()
 	defer s.state.Unlock()
 
-	res, err := registrystate.GetViaView(s.state, s.devAccID, "network", "other-view", []string{"ssid"})
+	res, err := registrystate.Get(s.state, s.devAccID, "network", "other-view", []string{"ssid"})
 	c.Assert(err, FitsTypeOf, &registry.NotFoundError{})
 	c.Assert(err, ErrorMatches, fmt.Sprintf(`cannot get "ssid" in registry view %s/network/other-view: not found`, s.devAccID))
 	c.Check(res, IsNil)
 
-	res, err = registrystate.GetViaView(s.state, s.devAccID, "network", "setup-wifi", []string{"ssid"})
+	res, err = registrystate.Get(s.state, s.devAccID, "network", "setup-wifi", []string{"ssid"})
 	c.Assert(err, FitsTypeOf, &registry.NotFoundError{})
 	c.Assert(err, ErrorMatches, fmt.Sprintf(`cannot get "ssid" in registry view %s/network/setup-wifi: matching rules don't map to any values`, s.devAccID))
 	c.Check(res, IsNil)
 
-	res, err = registrystate.GetViaView(s.state, s.devAccID, "network", "setup-wifi", []string{"other-field"})
+	res, err = registrystate.Get(s.state, s.devAccID, "network", "setup-wifi", []string{"other-field"})
 	c.Assert(err, FitsTypeOf, &registry.NotFoundError{})
 	c.Assert(err, ErrorMatches, fmt.Sprintf(`cannot get "other-field" in registry view %s/network/setup-wifi: no matching read rule`, s.devAccID))
 	c.Check(res, IsNil)
@@ -173,7 +184,7 @@ func (s *registryTestSuite) TestSetView(c *C) {
 	s.state.Lock()
 	defer s.state.Unlock()
 
-	err := registrystate.SetViaView(s.state, s.devAccID, "network", "setup-wifi", map[string]interface{}{"ssid": "foo"})
+	err := registrystate.Set(s.state, s.devAccID, "network", "setup-wifi", map[string]interface{}{"ssid": "foo"})
 	c.Assert(err, IsNil)
 
 	var databags map[string]map[string]registry.JSONDataBag
@@ -189,11 +200,11 @@ func (s *registryTestSuite) TestSetNotFound(c *C) {
 	s.state.Lock()
 	defer s.state.Unlock()
 
-	err := registrystate.SetViaView(s.state, s.devAccID, "network", "setup-wifi", map[string]interface{}{"foo": "bar"})
+	err := registrystate.Set(s.state, s.devAccID, "network", "setup-wifi", map[string]interface{}{"foo": "bar"})
 	c.Assert(err, FitsTypeOf, &registry.NotFoundError{})
 	c.Assert(err, ErrorMatches, fmt.Sprintf(`cannot set "foo" in registry view %s/network/setup-wifi: no matching write rule`, s.devAccID))
 
-	err = registrystate.SetViaView(s.state, s.devAccID, "network", "other-view", map[string]interface{}{"foo": "bar"})
+	err = registrystate.Set(s.state, s.devAccID, "network", "other-view", map[string]interface{}{"foo": "bar"})
 	c.Assert(err, FitsTypeOf, &registry.NotFoundError{})
 	c.Assert(err, ErrorMatches, fmt.Sprintf(`cannot set "foo" in registry view %s/network/other-view: not found`, s.devAccID))
 }
@@ -203,10 +214,10 @@ func (s *registryTestSuite) TestUnsetView(c *C) {
 	defer s.state.Unlock()
 
 	databag := registry.NewJSONDataBag()
-	err := registrystate.SetViaView(s.state, s.devAccID, "network", "setup-wifi", map[string]interface{}{"ssid": "foo"})
+	err := registrystate.Set(s.state, s.devAccID, "network", "setup-wifi", map[string]interface{}{"ssid": "foo"})
 	c.Assert(err, IsNil)
 
-	err = registrystate.SetViaView(s.state, s.devAccID, "network", "setup-wifi", map[string]interface{}{"ssid": nil})
+	err = registrystate.Set(s.state, s.devAccID, "network", "setup-wifi", map[string]interface{}{"ssid": nil})
 	c.Assert(err, IsNil)
 
 	val, err := databag.Get("wifi.ssid")
@@ -227,13 +238,13 @@ func (s *registryTestSuite) TestRegistrystateSetWithExistingState(c *C) {
 
 	s.state.Set("registry-databags", databags)
 
-	results, err := registrystate.GetViaView(s.state, s.devAccID, "network", "setup-wifi", []string{"ssid"})
+	results, err := registrystate.Get(s.state, s.devAccID, "network", "setup-wifi", []string{"ssid"})
 	c.Assert(err, IsNil)
 	resultsMap, ok := results.(map[string]interface{})
 	c.Assert(ok, Equals, true)
 	c.Assert(resultsMap["ssid"], Equals, "bar")
 
-	err = registrystate.SetViaView(s.state, s.devAccID, "network", "setup-wifi", map[string]interface{}{"ssid": "baz"})
+	err = registrystate.Set(s.state, s.devAccID, "network", "setup-wifi", map[string]interface{}{"ssid": "baz"})
 	c.Assert(err, IsNil)
 
 	err = s.state.Get("registry-databags", &databags)
@@ -272,7 +283,7 @@ func (s *registryTestSuite) TestRegistrystateSetWithNoState(c *C) {
 	for _, tc := range testcases {
 		s.state.Set("registry-databags", tc.state)
 
-		err := registrystate.SetViaView(s.state, s.devAccID, "network", "setup-wifi", map[string]interface{}{"ssid": "bar"})
+		err := registrystate.Set(s.state, s.devAccID, "network", "setup-wifi", map[string]interface{}{"ssid": "bar"})
 		c.Assert(err, IsNil)
 
 		var databags map[string]map[string]registry.JSONDataBag
@@ -289,7 +300,7 @@ func (s *registryTestSuite) TestRegistrystateGetEntireView(c *C) {
 	s.state.Lock()
 	defer s.state.Unlock()
 
-	err := registrystate.SetViaView(s.state, s.devAccID, "network", "setup-wifi", map[string]interface{}{
+	err := registrystate.Set(s.state, s.devAccID, "network", "setup-wifi", map[string]interface{}{
 		"ssids":    []interface{}{"foo", "bar"},
 		"password": "pass",
 		"private": map[string]interface{}{
@@ -299,7 +310,7 @@ func (s *registryTestSuite) TestRegistrystateGetEntireView(c *C) {
 	})
 	c.Assert(err, IsNil)
 
-	res, err := registrystate.GetViaView(s.state, s.devAccID, "network", "setup-wifi", nil)
+	res, err := registrystate.Get(s.state, s.devAccID, "network", "setup-wifi", nil)
 	c.Assert(err, IsNil)
 	c.Assert(res, DeepEquals, map[string]interface{}{
 		"ssids": []interface{}{"foo", "bar"},

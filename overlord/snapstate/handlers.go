@@ -38,6 +38,7 @@ import (
 	"github.com/snapcore/snapd/boot"
 	"github.com/snapcore/snapd/client"
 	"github.com/snapcore/snapd/client/clientutil"
+	"github.com/snapcore/snapd/cmd/snaplock"
 	"github.com/snapcore/snapd/cmd/snaplock/runinhibit"
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/features"
@@ -3365,6 +3366,22 @@ func (m *SnapManager) doKillSnapApps(t *state.Task, _ *tomb.Tomb) (err error) {
 	}
 	snapName := snapsup.InstanceName()
 
+	// This snap lock syncs snap-confine and this task to make sure they are not racing
+	// on two important resources:
+	//   - Remove inhibition lock (which snap-confine exits when observing)
+	//   - V1 freezer cgroup (which snap-confine creates and joins)
+	// This is needed to address an issue in systemd v237 (used by Ubuntu 18.04) for
+	// non-root users where no tracking transient scope cgroups are created except
+	// the freezer cgroup which is created in snap-confine after the inhibition lock
+	// is release by "snap run".
+	lock, err := snaplock.OpenLock(snapName)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	lock.Lock()
+	defer lock.Unlock()
+
 	inhibitInfo := runinhibit.InhibitInfo{Previous: snapsup.Revision()}
 	if err := runinhibit.LockWithHint(snapName, runinhibit.HintInhibitedForRemove, inhibitInfo); err != nil {
 		return err
@@ -3393,7 +3410,13 @@ func (m *SnapManager) doKillSnapApps(t *state.Task, _ *tomb.Tomb) (err error) {
 	defer st.Lock()
 
 	if err := m.backend.KillSnapApps(snapName, reason, perfTimings); err != nil {
-		return err
+		// Snap processes termination is best-effort and task should continue
+		// without returning an error. This is to avoid a maliciously crafted snap
+		// from causing remove changes to always fail causing the snap to never be
+		// removed.
+		st.Lock()
+		st.Warnf("cannot terminate running app processes for %q: %v", snapName, err)
+		st.Unlock()
 	}
 
 	currentInfo, err := snapst.CurrentInfo()

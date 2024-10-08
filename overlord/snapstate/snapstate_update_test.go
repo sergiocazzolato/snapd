@@ -10834,10 +10834,10 @@ func (s *snapmgrTestSuite) TestAutoRefreshRefreshInhibitNoticeRecordedOnPreDownl
 	})
 	seq.AddComponentForRevision(snap.R(1), &sequence.ComponentState{
 		SideInfo: &snap.ComponentSideInfo{
-			Component: naming.NewComponentRef("some-snap", "test-component"),
+			Component: naming.NewComponentRef("some-snap", "standard-component"),
 			Revision:  snap.R(1),
 		},
-		CompType: snap.TestComponent,
+		CompType: snap.StandardComponent,
 	})
 
 	s.state.Lock()
@@ -10854,8 +10854,8 @@ func (s *snapmgrTestSuite) TestAutoRefreshRefreshInhibitNoticeRecordedOnPreDownl
 		c.Assert(info.InstanceName(), Equals, "some-snap")
 		return []store.SnapResourceResult{
 			{
-				Name:      "test-component",
-				Type:      "component/test",
+				Name:      "standard-component",
+				Type:      "component/standard",
 				Version:   "1.0",
 				CreatedAt: "2024-01-01T00:00:00Z",
 				Revision:  5,
@@ -10868,7 +10868,7 @@ func (s *snapmgrTestSuite) TestAutoRefreshRefreshInhibitNoticeRecordedOnPreDownl
 	) (*snap.ComponentInfo, error) {
 		return &snap.ComponentInfo{
 			Component:         csi.Component,
-			Type:              "test",
+			Type:              "standard",
 			Version:           "1.0",
 			ComponentSideInfo: *csi,
 		}, nil
@@ -10923,7 +10923,7 @@ func (s *snapmgrTestSuite) TestAutoRefreshRefreshInhibitNoticeRecordedOnPreDownl
 	c.Assert(err, IsNil)
 	c.Check(snapst.Current, Equals, snap.R(11))
 
-	csi := snapst.CurrentComponentSideInfo(naming.NewComponentRef("some-snap", "test-component"))
+	csi := snapst.CurrentComponentSideInfo(naming.NewComponentRef("some-snap", "standard-component"))
 	c.Check(csi, NotNil)
 	c.Check(csi.Revision, Equals, snap.R(5))
 }
@@ -14088,6 +14088,261 @@ func (s *snapmgrTestSuite) TestUpdateBackToPrevRevision(c *C) {
 	c.Assert(snapst.Sequence.Revisions[0], DeepEquals, seq.Revisions[1])
 }
 
+func (s *snapmgrTestSuite) TestRevertWithComponents(c *C) {
+	const undo = false
+	s.testRevertWithComponents(c, undo)
+}
+
+func (s *snapmgrTestSuite) TestRevertWithComponentsUndo(c *C) {
+	const undo = true
+	s.testRevertWithComponents(c, undo)
+}
+
+func (s *snapmgrTestSuite) testRevertWithComponents(c *C, undo bool) {
+	const (
+		snapName    = "some-snap"
+		instanceKey = "key"
+		snapID      = "some-snap-id"
+		channel     = "channel-for-components"
+	)
+
+	components := []string{"standard-component", "kernel-modules-component"}
+
+	currentSnapRev := snap.R(11)
+	prevSnapRev := snap.R(7)
+	instanceName := snap.InstanceName(snapName, instanceKey)
+
+	sort.Strings(components)
+
+	s.fakeStore.snapResourcesFn = func(info *snap.Info) []store.SnapResourceResult {
+		c.Fatalf("unexpected call to snapResourcesFn")
+		return nil
+	}
+
+	s.state.Lock()
+	defer s.state.Unlock()
+
+	prevSI := snap.SideInfo{
+		RealName: snapName,
+		Revision: prevSnapRev,
+		SnapID:   snapID,
+		Channel:  channel,
+	}
+	currentSI := snap.SideInfo{
+		RealName: snapName,
+		Revision: currentSnapRev,
+		SnapID:   snapID,
+		Channel:  channel,
+	}
+	seq := snapstatetest.NewSequenceFromSnapSideInfos([]*snap.SideInfo{&prevSI, &currentSI})
+
+	currentKmodComps := make([]*snap.ComponentSideInfo, 0, len(components))
+	prevKmodComps := make([]*snap.ComponentSideInfo, 0, len(components))
+	for i, comp := range components {
+		prevCsi := snap.ComponentSideInfo{
+			Component: naming.NewComponentRef(snapName, comp),
+			Revision:  snap.R(i + 1),
+		}
+		err := seq.AddComponentForRevision(prevSnapRev, &sequence.ComponentState{
+			SideInfo: &prevCsi,
+			CompType: componentNameToType(c, comp),
+		})
+		c.Assert(err, IsNil)
+
+		currentCsi := snap.ComponentSideInfo{
+			Component: naming.NewComponentRef(snapName, comp),
+			Revision:  snap.R(i + 2),
+		}
+		err = seq.AddComponentForRevision(currentSnapRev, &sequence.ComponentState{
+			SideInfo: &currentCsi,
+			CompType: componentNameToType(c, comp),
+		})
+		c.Assert(err, IsNil)
+
+		if strings.HasPrefix(comp, string(snap.KernelModulesComponent)) {
+			prevKmodComps = append(prevKmodComps, &prevCsi)
+			currentKmodComps = append(currentKmodComps, &currentCsi)
+		}
+	}
+
+	s.AddCleanup(snapstate.MockReadComponentInfo(func(
+		compMntDir string, info *snap.Info, csi *snap.ComponentSideInfo,
+	) (*snap.ComponentInfo, error) {
+		return &snap.ComponentInfo{
+			Component:         csi.Component,
+			Type:              componentNameToType(c, csi.Component.ComponentName),
+			Version:           "1.0",
+			ComponentSideInfo: *csi,
+		}, nil
+	}))
+
+	snapstate.Set(s.state, instanceName, &snapstate.SnapState{
+		Active:          true,
+		Sequence:        seq,
+		Current:         currentSI.Revision,
+		SnapType:        "app",
+		TrackingChannel: channel,
+		InstanceKey:     instanceKey,
+	})
+
+	ts, err := snapstate.Revert(s.state, instanceName, snapstate.Flags{}, "")
+	c.Assert(err, IsNil)
+
+	chg := s.state.NewChange("revert", "revert a snap")
+	chg.AddAll(ts)
+
+	if undo {
+		last := ts.Tasks()[len(ts.Tasks())-1]
+
+		terr := s.state.NewTask("error-trigger", "provoking total undo")
+		terr.WaitFor(last)
+		chg.AddTask(terr)
+	}
+
+	// local modifications, edge must be set
+	te := ts.MaybeEdge(snapstate.LastBeforeLocalModificationsEdge)
+	c.Assert(te, NotNil)
+	c.Assert(te.Kind(), Equals, "prepare-snap")
+
+	s.settle(c)
+
+	if undo {
+		c.Assert(chg.Err(), NotNil, Commentf("change tasks:\n%s", printTasks(chg.Tasks())))
+	} else {
+		c.Assert(chg.Err(), IsNil, Commentf("change tasks:\n%s", printTasks(chg.Tasks())))
+	}
+
+	// note the absence of link-component tasks. that is because we do not need
+	// to link components when reverting, since they should already be linked,
+	// as they were part of a the previous revision
+	expected := fakeOps{
+		{
+			op:   "remove-snap-aliases",
+			name: instanceName,
+		},
+		{
+			op:          "run-inhibit-snap-for-unlink",
+			name:        instanceName,
+			inhibitHint: "refresh",
+		},
+		{
+			op:   "unlink-snap",
+			path: filepath.Join(dirs.SnapMountDir, instanceName, currentSnapRev.String()),
+		},
+		{
+			op:    "setup-profiles:Doing",
+			name:  instanceName,
+			revno: prevSnapRev,
+		},
+		{
+			op: "candidate",
+			sinfo: snap.SideInfo{
+				RealName: snapName,
+				SnapID:   snapID,
+				Channel:  channel,
+				Revision: prevSnapRev,
+			},
+		},
+		{
+			op:   "link-snap",
+			path: filepath.Join(dirs.SnapMountDir, instanceName, prevSnapRev.String()),
+		},
+		{
+			op:    "auto-connect:Doing",
+			name:  instanceName,
+			revno: prevSnapRev,
+		},
+		{
+			op: "update-aliases",
+		},
+		{
+			op:           "prepare-kernel-modules-components",
+			currentComps: currentKmodComps,
+			finalComps:   prevKmodComps,
+		},
+	}
+
+	if undo {
+		expected = append(expected, []fakeOp{
+			{
+				op:           "prepare-kernel-modules-components",
+				currentComps: prevKmodComps,
+				finalComps:   currentKmodComps,
+			},
+			{
+				op:   "remove-snap-aliases",
+				name: instanceName,
+			},
+			{
+				op:    "auto-connect:Undoing",
+				name:  instanceName,
+				revno: prevSnapRev,
+			},
+			{
+				op:   "unlink-snap",
+				path: filepath.Join(dirs.SnapMountDir, instanceName, prevSnapRev.String()),
+			},
+			{
+				op:    "setup-profiles:Undoing",
+				name:  instanceName,
+				revno: prevSnapRev,
+			},
+			{
+				op:   "link-snap",
+				path: filepath.Join(dirs.SnapMountDir, instanceName, currentSnapRev.String()),
+			},
+			{
+				op: "update-aliases",
+			},
+		}...)
+	}
+
+	// start with an easier-to-read error if this fails:
+	c.Assert(s.fakeBackend.ops.Ops(), DeepEquals, expected.Ops())
+	c.Assert(s.fakeBackend.ops, DeepEquals, expected)
+
+	task := ts.Tasks()[1]
+
+	// verify snapSetup info
+	var snapsup snapstate.SnapSetup
+	err = task.Get("snap-setup", &snapsup)
+	c.Assert(err, IsNil)
+	c.Assert(snapsup, DeepEquals, snapstate.SnapSetup{
+		SideInfo:  snapsup.SideInfo,
+		Type:      snap.TypeApp,
+		Version:   "some-snapVer",
+		PlugsOnly: true,
+		Flags: snapstate.Flags{
+			Revert: true,
+		},
+		InstanceKey:                     instanceKey,
+		PreUpdateKernelModuleComponents: currentKmodComps,
+	})
+	c.Assert(snapsup.SideInfo, DeepEquals, &snap.SideInfo{
+		RealName: snapName,
+		Revision: prevSnapRev,
+		Channel:  channel,
+		SnapID:   snapID,
+	})
+
+	// verify snaps in the system state
+	var snapst snapstate.SnapState
+	err = snapstate.Get(s.state, instanceName, &snapst)
+	c.Assert(err, IsNil)
+
+	c.Assert(snapst.Active, Equals, true)
+	c.Assert(snapst.Sequence.Revisions, HasLen, 2)
+
+	if undo {
+		c.Assert(snapst.Current, Equals, currentSnapRev)
+	} else {
+		c.Assert(snapst.Current, Equals, prevSnapRev)
+	}
+
+	// revert maintains the order of the sequence
+	c.Assert(snapst.Sequence.Revisions, DeepEquals, seq.Revisions)
+}
+
 func (s *snapmgrTestSuite) TestUpdateWithComponentsBackToPrevRevision(c *C) {
 	const (
 		snapName    = "snap-with-components"
@@ -14096,7 +14351,7 @@ func (s *snapmgrTestSuite) TestUpdateWithComponentsBackToPrevRevision(c *C) {
 		channel     = "channel-for-components-only-component-refresh"
 	)
 
-	components := []string{"test-component", "kernel-modules-component"}
+	components := []string{"standard-component", "kernel-modules-component"}
 
 	currentSnapRev := snap.R(11)
 	prevSnapRev := snap.R(7)
@@ -14187,12 +14442,12 @@ func (s *snapmgrTestSuite) TestUpdateWithComponentsBackToPrevRevision(c *C) {
 
 	availableComponents := make([]string, len(components))
 	copy(availableComponents, components)
-	availableComponents = append(availableComponents, "test-component-extra", "test-component-present-in-sequence")
+	availableComponents = append(availableComponents, "standard-component-extra", "standard-component-present-in-sequence")
 
-	// test-component-extra is installed for just the revision we're moving to,
+	// standard-component-extra is installed for just the revision we're moving to,
 	// it should be unlinked and discarded
 	extraCsi := snap.ComponentSideInfo{
-		Component: naming.NewComponentRef(snapName, "test-component-extra"),
+		Component: naming.NewComponentRef(snapName, "standard-component-extra"),
 		Revision:  snap.R(len(availableComponents) + 1),
 	}
 	err := seq.AddComponentForRevision(prevSnapRev, &sequence.ComponentState{
@@ -14201,10 +14456,10 @@ func (s *snapmgrTestSuite) TestUpdateWithComponentsBackToPrevRevision(c *C) {
 	})
 	c.Assert(err, IsNil)
 
-	// test-component-present-in-sequence is installed for the revision we're
+	// standard-component-present-in-sequence is installed for the revision we're
 	// moving to and another revision. it should be unlinked, but not discarded.
 	presentInSeqCsi := snap.ComponentSideInfo{
-		Component: naming.NewComponentRef(snapName, "test-component-present-in-sequence"),
+		Component: naming.NewComponentRef(snapName, "standard-component-present-in-sequence"),
 		Revision:  snap.R(len(availableComponents) + 1),
 	}
 	for _, si := range []*snap.SideInfo{&prevSI, &otherSI} {
@@ -14503,7 +14758,7 @@ func (s *snapmgrTestSuite) TestUpdateWithComponentsBackToPrevRevision(c *C) {
 
 func (s *snapmgrTestSuite) TestUpdateWithComponentsRunThrough(c *C) {
 	s.testUpdateWithComponentsRunThrough(c, updateWithComponentsOpts{
-		components: []string{"test-component", "kernel-modules-component"},
+		components: []string{"standard-component", "kernel-modules-component"},
 	})
 }
 
@@ -14528,7 +14783,7 @@ func (s *snapmgrTestSuite) TestUpdateExplicitlyToSameRevisionRunThroughUndo(c *C
 
 func (s *snapmgrTestSuite) TestUpdateWithComponentsRunThroughUndo(c *C) {
 	s.testUpdateWithComponentsRunThrough(c, updateWithComponentsOpts{
-		components:            []string{"test-component", "kernel-modules-component"},
+		components:            []string{"standard-component", "kernel-modules-component"},
 		refreshAppAwarenessUX: true,
 		undo:                  true,
 	})
@@ -14537,7 +14792,7 @@ func (s *snapmgrTestSuite) TestUpdateWithComponentsRunThroughUndo(c *C) {
 func (s *snapmgrTestSuite) TestUpdateWithComponentsRunThroughInstanceKey(c *C) {
 	s.testUpdateWithComponentsRunThrough(c, updateWithComponentsOpts{
 		instanceKey:           "key",
-		components:            []string{"test-component", "kernel-modules-component"},
+		components:            []string{"standard-component", "kernel-modules-component"},
 		refreshAppAwarenessUX: true,
 	})
 }
@@ -14545,7 +14800,7 @@ func (s *snapmgrTestSuite) TestUpdateWithComponentsRunThroughInstanceKey(c *C) {
 func (s *snapmgrTestSuite) TestUpdateWithComponentsRunThroughInstanceKeyUndo(c *C) {
 	s.testUpdateWithComponentsRunThrough(c, updateWithComponentsOpts{
 		instanceKey:           "key",
-		components:            []string{"test-component", "kernel-modules-component"},
+		components:            []string{"standard-component", "kernel-modules-component"},
 		refreshAppAwarenessUX: true,
 		undo:                  true,
 	})
@@ -14554,8 +14809,8 @@ func (s *snapmgrTestSuite) TestUpdateWithComponentsRunThroughInstanceKeyUndo(c *
 func (s *snapmgrTestSuite) TestUpdateWithComponentsRunThroughLoseComponents(c *C) {
 	s.testUpdateWithComponentsRunThrough(c, updateWithComponentsOpts{
 		instanceKey:           "key",
-		components:            []string{"test-component", "kernel-modules-component"},
-		postRefreshComponents: []string{"test-component"},
+		components:            []string{"standard-component", "kernel-modules-component"},
+		postRefreshComponents: []string{"standard-component"},
 		refreshAppAwarenessUX: true,
 	})
 }
@@ -14563,8 +14818,8 @@ func (s *snapmgrTestSuite) TestUpdateWithComponentsRunThroughLoseComponents(c *C
 func (s *snapmgrTestSuite) TestUpdateWithComponentsRunThroughLoseComponentsUndo(c *C) {
 	s.testUpdateWithComponentsRunThrough(c, updateWithComponentsOpts{
 		instanceKey:           "key",
-		components:            []string{"test-component", "kernel-modules-component"},
-		postRefreshComponents: []string{"test-component"},
+		components:            []string{"standard-component", "kernel-modules-component"},
+		postRefreshComponents: []string{"standard-component"},
 		refreshAppAwarenessUX: true,
 		undo:                  true,
 	})
@@ -14768,7 +15023,12 @@ func (s *snapmgrTestSuite) testUpdateWithComponentsRunThrough(c *C, opts updateW
 		c.Assert(te.Kind(), Equals, "validate-snap")
 	}
 
-	s.settle(c)
+	// we manually settle here since this test can be slow when the host is
+	// under load
+	s.state.Unlock()
+	err = s.o.Settle(testutil.HostScaledTimeout(15 * time.Second))
+	s.state.Lock()
+	c.Assert(err, IsNil, Commentf("change tasks:\n%s", printTasks(chg.Tasks())))
 
 	if opts.undo {
 		c.Assert(chg.Err(), NotNil, Commentf("change tasks:\n%s", printTasks(chg.Tasks())))
@@ -15150,13 +15410,13 @@ func (s *snapmgrTestSuite) TestUpdateTasksWithComponentsRemoved(c *C) {
 		case "comp1":
 			return &snap.ComponentInfo{
 				Component:         cref1,
-				Type:              snap.TestComponent,
+				Type:              snap.StandardComponent,
 				ComponentSideInfo: *csi,
 			}, nil
 		case "comp2":
 			return &snap.ComponentInfo{
 				Component:         cref2,
-				Type:              snap.TestComponent,
+				Type:              snap.StandardComponent,
 				ComponentSideInfo: *csi,
 			}, nil
 		}
@@ -15167,18 +15427,18 @@ func (s *snapmgrTestSuite) TestUpdateTasksWithComponentsRemoved(c *C) {
 			sequence.NewRevisionSideState(si1,
 				[]*sequence.ComponentState{
 					sequence.NewComponentState(
-						comp1si, snap.TestComponent),
+						comp1si, snap.StandardComponent),
 					sequence.NewComponentState(
-						comp2si, snap.TestComponent),
+						comp2si, snap.StandardComponent),
 				}),
 			sequence.NewRevisionSideState(si2, nil),
 			sequence.NewRevisionSideState(si3, nil),
 			sequence.NewRevisionSideState(si4,
 				[]*sequence.ComponentState{
 					sequence.NewComponentState(
-						comp1si, snap.TestComponent),
+						comp1si, snap.StandardComponent),
 					sequence.NewComponentState(
-						comp2si, snap.TestComponent),
+						comp2si, snap.StandardComponent),
 				}),
 			sequence.NewRevisionSideState(si5, nil),
 		})
@@ -15269,7 +15529,7 @@ func (s *snapmgrTestSuite) TestUpdateWithComponentsFromPathRunThrough(c *C) {
 		refreshAppAwarenessUX = true
 		undo                  = false
 	)
-	s.testUpdateWithComponentsFromPathRunThrough(c, instanceKey, []string{"test-component", "kernel-modules-component"}, refreshAppAwarenessUX, undo)
+	s.testUpdateWithComponentsFromPathRunThrough(c, instanceKey, []string{"standard-component", "kernel-modules-component"}, refreshAppAwarenessUX, undo)
 }
 
 func (s *snapmgrTestSuite) TestUpdateWithComponentsFromPathRunThroughUndo(c *C) {
@@ -15278,7 +15538,7 @@ func (s *snapmgrTestSuite) TestUpdateWithComponentsFromPathRunThroughUndo(c *C) 
 		refreshAppAwarenessUX = true
 		undo                  = true
 	)
-	s.testUpdateWithComponentsFromPathRunThrough(c, instanceKey, []string{"test-component", "kernel-modules-component"}, refreshAppAwarenessUX, undo)
+	s.testUpdateWithComponentsFromPathRunThrough(c, instanceKey, []string{"standard-component", "kernel-modules-component"}, refreshAppAwarenessUX, undo)
 }
 
 func (s *snapmgrTestSuite) testUpdateWithComponentsFromPathRunThrough(c *C, instanceKey string, compNames []string, refreshAppAwarenessUX, undo bool) {
@@ -15414,8 +15674,8 @@ version: some-snapVer
 type: kernel
 epoch: 1*
 components:
-  test-component:
-    type: test
+  standard-component:
+    type: standard
   kernel-modules-component:
     type: kernel-modules
     `, snapName))
@@ -15463,7 +15723,12 @@ components:
 	c.Assert(te, NotNil)
 	c.Assert(te.Kind(), Equals, "prepare-snap")
 
-	s.settle(c)
+	// we manually settle here since this test can be slow when the host is
+	// under load
+	s.state.Unlock()
+	err = s.o.Settle(testutil.HostScaledTimeout(15 * time.Second))
+	s.state.Lock()
+	c.Assert(err, IsNil, Commentf("change tasks:\n%s", printTasks(chg.Tasks())))
 
 	if undo {
 		c.Assert(chg.Err(), NotNil, Commentf("change tasks:\n%s", printTasks(chg.Tasks())))
@@ -15689,7 +15954,7 @@ components:
 func (s *snapmgrTestSuite) TestUpdateWithComponentsRunThroughOnlyComponentUpdate(c *C) {
 	s.testUpdateWithComponentsRunThroughOnlyComponentUpdate(c, updateWithComponentsOpts{
 		instanceKey:           "key",
-		components:            []string{"test-component", "kernel-modules-component"},
+		components:            []string{"standard-component", "kernel-modules-component"},
 		refreshAppAwarenessUX: true,
 	})
 }
@@ -15697,7 +15962,7 @@ func (s *snapmgrTestSuite) TestUpdateWithComponentsRunThroughOnlyComponentUpdate
 func (s *snapmgrTestSuite) TestUpdateWithComponentsRunThroughOnlyComponentUpdateUndo(c *C) {
 	s.testUpdateWithComponentsRunThroughOnlyComponentUpdate(c, updateWithComponentsOpts{
 		instanceKey:           "key",
-		components:            []string{"test-component", "kernel-modules-component"},
+		components:            []string{"standard-component", "kernel-modules-component"},
 		refreshAppAwarenessUX: true,
 		undo:                  true,
 	})
@@ -15878,7 +16143,12 @@ func (s *snapmgrTestSuite) testUpdateWithComponentsRunThroughOnlyComponentUpdate
 	c.Assert(te, NotNil)
 	c.Assert(te.Kind(), Equals, "prepare-snap")
 
-	s.settle(c)
+	// we manually settle here since this test can be slow when the host is
+	// under load
+	s.state.Unlock()
+	err = s.o.Settle(testutil.HostScaledTimeout(15 * time.Second))
+	s.state.Lock()
+	c.Assert(err, IsNil, Commentf("change tasks:\n%s", printTasks(chg.Tasks())))
 
 	if opts.undo {
 		c.Assert(chg.Err(), NotNil, Commentf("change tasks:\n%s", printTasks(chg.Tasks())))
