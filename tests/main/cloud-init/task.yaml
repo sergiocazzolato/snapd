@@ -8,6 +8,11 @@ details: |
 # GCE backend sets instance data
 backends: [google]
 
+prepare: |
+    if ! command -v jq; then
+        snap install --devmode jq
+    fi
+
 execute: |
     if [[ ! -e /run/cloud-init/instance-data.json ]]; then
         echo "cloud-init instance data is required to execute the test"
@@ -30,7 +35,7 @@ execute: |
             kname=${kname/_/-}
         fi
 
-       gojq -r ".[\"v1\"][\"$kname\"]" < /run/cloud-init/instance-data.json
+       jq -r ".[\"v1\"][\"$kname\"]" < /run/cloud-init/instance-data.json
     }
     # GCE sets the following in Ubuntu images:
     # {

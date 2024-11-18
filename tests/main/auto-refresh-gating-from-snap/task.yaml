@@ -16,6 +16,7 @@ environment:
   DEBUG_LOG_FILE: /var/snap/test-snapd-refresh-control/common/debug.log
 
 prepare: |
+  snap install --devmode jq
   snap set system experimental.gate-auto-refresh-hook=true
 
   echo "Install test snaps"
@@ -24,7 +25,7 @@ prepare: |
   "$TESTSTOOLS"/snaps-state install-local "$NOHOOK_SNAP"
 
 debug: |
-  gojq -r '.data["snaps-hold"]' < /var/lib/snapd/state.json || true
+  jq -r '.data["snaps-hold"]' < /var/lib/snapd/state.json || true
 
 execute: |
   LAST_REFRESH_CHANGE_ID=1
