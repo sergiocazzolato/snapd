@@ -280,16 +280,16 @@ backends:
         systems:
             - ubuntu-20.04-64:
                   storage: 12G
-                  workers: 8
+                  workers: 12
             - ubuntu-22.04-64:
                   storage: 12G
-                  workers: 8
+                  workers: 12
             - ubuntu-24.04-64:
                   storage: 12G
-                  workers: 8
+                  workers: 12
             - ubuntu-24.10-64:
                   storage: 12G
-                  workers: 8
+                  workers: 12
 
     google-nested:
         type: google

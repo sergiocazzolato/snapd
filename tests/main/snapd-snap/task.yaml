@@ -38,6 +38,8 @@ systems:
 priority: 100
 kill-timeout: 35m
 
+manual: true
+
 environment:
     # the destructive build mode runs only on xenial, but we also run lxd on
     # xenial to make sure it builds there too
