@@ -23,6 +23,7 @@ prepare: |
         tests.exec skip-test "skipping test when SNAP_REEXEC is disabled" && exit 0
     fi
 
+
     #  when testing core remove snapd snap as option for re-exec
     if [ "$SNAPD_SRC" == "core" ]; then
         systemctl stop snapd.service snapd.socket
