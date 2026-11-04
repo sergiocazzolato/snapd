@@ -44,3 +44,13 @@ execute: |
     export SPREAD_SNAPD_USE_PROXY="$SNAPD_USE_PROXY"
 
     "$SPREAD" -v "external:$NESTED_SPREAD_SYSTEM:tests/smoke/..."
+
+    # Clean up any stray processes from minimal memory tests.
+    # The dbus-daemon from test user sessions may linger in low-memory
+    # environments before being naturally cleaned up. This is specific to
+    # minimal-smoke and doesn't indicate an issue in other contexts.
+    # Use SSH to connect to the still-running VM and clean up.
+    ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -p 8022 \
+        root@localhost \
+        'killall -u test dbus-daemon 2>/dev/null || true; \
+         loginctl terminate-user test 2>/dev/null || true' || true
